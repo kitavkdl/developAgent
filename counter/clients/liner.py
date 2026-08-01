@@ -3,8 +3,8 @@
 역할 경계 (D-04): LINER는 검색을 '실행'하고, OpenAI는 그 검색을 계획·평가·판정한다.
 검색은 전부 LINER — OpenAI 내장 web_search는 쓰지 않는다.
 
-⚠️ 엔드포인트/파라미터명은 L1 실측 전 미확인 (MODELS_AND_APIS §3.2).
-   전부 설정(LINER_API_BASE, LINER_*_PATH)으로 빼두었으므로 실측 후 secrets에서 수정.
+엔드포인트/인증 헤더는 L1 실측 완료 (공식 문서 대조, MODELS_AND_APIS §3.2).
+   전부 설정(LINER_API_BASE, LINER_*_PATH)으로 빼두었으므로 필요 시 secrets에서 override.
 
 구현 요구사항 (§3.3):
 - timeout (기본 15s)
@@ -68,7 +68,7 @@ class LinerClient:
         self._client = httpx.Client(
             base_url=settings.liner_api_base,
             timeout=settings.liner_timeout_seconds,
-            headers={"Authorization": f"Bearer {settings.liner_api_key or ''}"},
+            headers={"x-api-key": settings.liner_api_key or ""},
             transport=transport,
         )
 

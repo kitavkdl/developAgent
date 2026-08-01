@@ -68,10 +68,10 @@ class Settings:
     liner_api_key: str | None = None
     database_url: str | None = None
 
-    # LINER — 엔드포인트는 L1 실측 전 미확인 (MODELS_AND_APIS §3.2)
-    liner_api_base: str = "https://api.liner.com/v1"
-    liner_web_search_path: str = "/search/web"
-    liner_scholar_search_path: str = "/search/scholar"
+    # LINER — L1 실측 완료 (공식 문서 대조, MODELS_AND_APIS §3.2)
+    liner_api_base: str = "https://platform.liner.com"
+    liner_web_search_path: str = "/api/v1/tools/search/web"
+    liner_scholar_search_path: str = "/api/v1/tools/search/scholar"
     liner_supports_date_filter: bool = False  # L3 미확인 → 기본 false = 델타 서치 스코프 아웃
     liner_timeout_seconds: float = 15.0
     liner_qps: float = 1.0
@@ -103,9 +103,9 @@ def load_settings() -> Settings:
         openai_api_key=_get("OPENAI_API_KEY"),
         liner_api_key=_get("LINER_API_KEY"),
         database_url=_get("DATABASE_URL"),
-        liner_api_base=_get("LINER_API_BASE", "https://api.liner.com/v1"),
-        liner_web_search_path=_get("LINER_WEB_SEARCH_PATH", "/search/web"),
-        liner_scholar_search_path=_get("LINER_SCHOLAR_SEARCH_PATH", "/search/scholar"),
+        liner_api_base=_get("LINER_API_BASE", "https://platform.liner.com"),
+        liner_web_search_path=_get("LINER_WEB_SEARCH_PATH", "/api/v1/tools/search/web"),
+        liner_scholar_search_path=_get("LINER_SCHOLAR_SEARCH_PATH", "/api/v1/tools/search/scholar"),
         liner_supports_date_filter=_get_bool("LINER_SUPPORTS_DATE_FILTER", False),
         liner_timeout_seconds=_get_float("LINER_TIMEOUT_SECONDS", 15.0),
         liner_qps=_get_float("LINER_QPS", 1.0),
