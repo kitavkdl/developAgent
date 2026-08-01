@@ -30,8 +30,8 @@ export default function DatabasePage() {
           <strong>Watch the index resolve a category leaf.</strong>
         </div>
         <p>
-          The deterministic demo follows Beauty → 뷰티 → 앰플, selecting one
-          node per level as child leaves appear.
+          Phase2 scans the Beauty leaf page, inserts 뷰티 on a miss, then
+          spawns one payload and one token node down the path (5s hops).
         </p>
       </header>
 

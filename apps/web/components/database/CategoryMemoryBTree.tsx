@@ -11,6 +11,7 @@ import {
 import {
   CATEGORY_INDEX_PAGES,
   CATEGORY_REUSE_THRESHOLD_REFERENCE,
+  DEMO_CREATED_CATEGORY_ID,
   DEMO_LOOKUP,
   categoryById,
   pageForCategory,
@@ -19,6 +20,12 @@ import {
 import styles from "@/app/database/database.module.css";
 
 type ScanMode = "auto" | "paused" | "manual" | "complete";
+type DemoPhase =
+  | "probe"
+  | "create-leaf"
+  | "spawn-phrase"
+  | "spawn-token"
+  | "done";
 type CascadeStyle = CSSProperties & { "--node-index": number };
 type EdgeState = "current" | "visited";
 
@@ -34,41 +41,9 @@ interface EdgeCanvas {
   edges: TreeEdge[];
 }
 
-/** Hold each explored level before selecting the next child. Cascade timing is ignored. */
-const LEVEL_HOLD_MS = 2000;
+/** Pointer hop / spawn beat length (phase2). */
+const LEVEL_HOLD_MS = 5000;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
-
-/** Cumulative selection per beat. Child levels render only when demoStep reaches them. */
-const DEMO_LEVEL_SELECTIONS = [
-  {
-    pageId: DEMO_LOOKUP.branchId,
-    categoryId: null,
-    phrase: null,
-    keyword: null,
-    status: "Range hit · follow ptr 0x0118",
-  },
-  {
-    pageId: DEMO_LOOKUP.branchId,
-    categoryId: DEMO_LOOKUP.categoryId,
-    phrase: null,
-    keyword: null,
-    status: "Leaf hit · 뷰티",
-  },
-  {
-    pageId: DEMO_LOOKUP.branchId,
-    categoryId: DEMO_LOOKUP.categoryId,
-    phrase: DEMO_LOOKUP.phrase,
-    keyword: null,
-    status: "Payload probe · 앰플",
-  },
-  {
-    pageId: DEMO_LOOKUP.branchId,
-    categoryId: DEMO_LOOKUP.categoryId,
-    phrase: DEMO_LOOKUP.phrase,
-    keyword: DEMO_LOOKUP.keyword,
-    status: "Token match · 앰플",
-  },
-] as const;
 
 function cascadeStyle(index: number): CascadeStyle {
   return { "--node-index": index };
@@ -141,26 +116,47 @@ function ScanCursor({ label }: { label: string }) {
   );
 }
 
+function phaseStatus(
+  phase: DemoPhase,
+  leafProbeIndex: number | null,
+  initialLeafCount: number,
+): string {
+  switch (phase) {
+    case "probe":
+      return `Leaf probe · slot ${String((leafProbeIndex ?? 0) + 1).padStart(2, "0")}/${String(initialLeafCount).padStart(2, "0")}`;
+    case "create-leaf":
+      return "Create leaf · 뷰티";
+    case "spawn-phrase":
+      return "Spawn payload · 앰플";
+    case "spawn-token":
+      return "Spawn token · 앰플";
+    case "done":
+      return "Leaf payload match · 앰플";
+  }
+}
+
 export function CategoryMemoryBTree() {
   const [mode, setMode] = useState<ScanMode>("auto");
-  const [demoStep, setDemoStep] = useState(0);
+  const [demoPhase, setDemoPhase] = useState<DemoPhase>("probe");
+  const [leafProbeIndex, setLeafProbeIndex] = useState<number | null>(0);
+  const [createdCategoryIds, setCreatedCategoryIds] = useState<string[]>([]);
+  const [spawnedPhrases, setSpawnedPhrases] = useState<string[]>([]);
+  const [spawnedKeywords, setSpawnedKeywords] = useState<string[]>([]);
+
   const [selectedPageId, setSelectedPageId] = useState<string | null>(
-    DEMO_LEVEL_SELECTIONS[0].pageId,
+    DEMO_LOOKUP.branchId,
   );
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
-    DEMO_LEVEL_SELECTIONS[0].categoryId,
+    null,
   );
-  const [selectedPhrase, setSelectedPhrase] = useState<string | null>(
-    DEMO_LEVEL_SELECTIONS[0].phrase,
-  );
-  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(
-    DEMO_LEVEL_SELECTIONS[0].keyword,
-  );
+  const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
+  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
 
   const treeRef = useRef<HTMLElement>(null);
   const leafLevelRef = useRef<HTMLDivElement>(null);
   const phraseLevelRef = useRef<HTMLDivElement>(null);
   const keywordLevelRef = useRef<HTMLDivElement>(null);
+  const leafLevelOpenedRef = useRef(false);
   const [edgeCanvas, setEdgeCanvas] = useState<EdgeCanvas>({
     width: 0,
     height: 0,
@@ -177,30 +173,50 @@ export function CategoryMemoryBTree() {
     () => (selectedCategoryId ? categoryById(selectedCategoryId) : undefined),
     [selectedCategoryId],
   );
-  const keywords = useMemo(
-    () => (selectedPhrase ? phraseKeywords(selectedPhrase) : []),
-    [selectedPhrase],
-  );
-  const selectedPhraseNodeId = selectedPhrase
-    ? `phrase-${selectedCategory?.centroidPhrases.indexOf(selectedPhrase)}`
-    : null;
 
-  // Auto: reveal children only when descending into that level (demoStep).
-  // Manual: opening a parent by click reveals its children.
-  const openedDepth =
+  const visibleLeafIds = useMemo(() => {
+    if (!selectedPage) return [];
+    const extras =
+      selectedPage.pageId === DEMO_LOOKUP.branchId ? createdCategoryIds : [];
+    return [
+      ...selectedPage.categoryIds,
+      ...extras.filter((id) => !selectedPage.categoryIds.includes(id)),
+    ];
+  }, [selectedPage, createdCategoryIds]);
+
+  const initialLeafCount = selectedPage?.categoryIds.length ?? 0;
+
+  const phrasesToShow = useMemo(() => {
+    if (mode === "manual") return selectedCategory?.centroidPhrases ?? [];
+    return spawnedPhrases;
+  }, [mode, selectedCategory, spawnedPhrases]);
+
+  const keywordsToShow = useMemo(() => {
+    if (mode === "manual") {
+      return selectedPhrase ? phraseKeywords(selectedPhrase) : [];
+    }
+    return spawnedKeywords;
+  }, [mode, selectedPhrase, spawnedKeywords]);
+
+  const selectedPhraseNodeId =
+    selectedPhrase && phrasesToShow.includes(selectedPhrase)
+      ? `phrase-${phrasesToShow.indexOf(selectedPhrase)}`
+      : null;
+
+  const showLeafLevel = selectedPage !== null;
+  const showPhraseLevel =
     mode === "manual"
-      ? selectedKeyword || selectedPhrase
-        ? 3
-        : selectedCategoryId
-          ? 2
-          : selectedPageId
-            ? 1
-            : 0
-      : demoStep;
-
-  const showLeafLevel = openedDepth >= 1 && selectedPage !== null;
-  const showPhraseLevel = openedDepth >= 2 && selectedCategory !== undefined;
-  const showTokenLevel = openedDepth >= 3 && selectedPhrase !== null;
+      ? selectedCategory !== undefined
+      : demoPhase === "spawn-phrase" ||
+        demoPhase === "spawn-token" ||
+        demoPhase === "done" ||
+        spawnedPhrases.length > 0;
+  const showTokenLevel =
+    mode === "manual"
+      ? selectedPhrase !== null
+      : demoPhase === "spawn-token" ||
+        demoPhase === "done" ||
+        spawnedKeywords.length > 0;
 
   const visibleDepth = selectedKeyword
     ? 4
@@ -214,36 +230,58 @@ export function CategoryMemoryBTree() {
 
   useEffect(() => {
     if (mode !== "auto") return;
-
-    const selection = DEMO_LEVEL_SELECTIONS[demoStep];
-    if (!selection) {
+    if (demoPhase === "done") {
       setMode("complete");
       return;
     }
 
-    // Select the node at this depth; deeper sub-nodes stay unmounted until later beats.
-    setSelectedPageId(selection.pageId);
-    setSelectedCategoryId(selection.categoryId);
-    setSelectedPhrase(selection.phrase);
-    setSelectedKeyword(selection.keyword);
-
     const timer = window.setTimeout(() => {
-      if (demoStep >= DEMO_LEVEL_SELECTIONS.length - 1) {
-        setMode("complete");
+      if (demoPhase === "probe") {
+        const nextIndex = (leafProbeIndex ?? 0) + 1;
+        if (nextIndex < initialLeafCount) {
+          setLeafProbeIndex(nextIndex);
+          return;
+        }
+        setLeafProbeIndex(null);
+        setCreatedCategoryIds([DEMO_CREATED_CATEGORY_ID]);
+        setSelectedCategoryId(DEMO_CREATED_CATEGORY_ID);
+        setDemoPhase("create-leaf");
         return;
       }
-      setDemoStep(demoStep + 1);
+
+      if (demoPhase === "create-leaf") {
+        setSpawnedPhrases([DEMO_LOOKUP.phrase]);
+        setSelectedPhrase(DEMO_LOOKUP.phrase);
+        setDemoPhase("spawn-phrase");
+        return;
+      }
+
+      if (demoPhase === "spawn-phrase") {
+        setSpawnedKeywords([DEMO_LOOKUP.keyword]);
+        setSelectedKeyword(DEMO_LOOKUP.keyword);
+        setDemoPhase("spawn-token");
+        return;
+      }
+
+      if (demoPhase === "spawn-token") {
+        setDemoPhase("done");
+        setMode("complete");
+      }
     }, LEVEL_HOLD_MS);
 
     return () => window.clearTimeout(timer);
-  }, [demoStep, mode]);
+  }, [demoPhase, initialLeafCount, leafProbeIndex, mode]);
 
   useEffect(() => {
-    if (showLeafLevel) {
-      scrollLevelIntoView(leafLevelRef.current, {
-        extraDownRatio: LEVEL_SCROLL_EXTRA_RATIO,
-      });
+    if (!showLeafLevel) {
+      leafLevelOpenedRef.current = false;
+      return;
     }
+    if (leafLevelOpenedRef.current) return;
+    leafLevelOpenedRef.current = true;
+    scrollLevelIntoView(leafLevelRef.current, {
+      extraDownRatio: LEVEL_SCROLL_EXTRA_RATIO,
+    });
   }, [showLeafLevel]);
 
   useEffect(() => {
@@ -281,19 +319,24 @@ export function CategoryMemoryBTree() {
         },
       ];
 
-      if (openedDepth >= 1 && selectedPageId) {
+      if (showLeafLevel && selectedPageId) {
         groups.push({
           parentId: selectedPageId,
-          state: selectedCategoryId ? "visited" : "current",
+          state:
+            selectedCategoryId || leafProbeIndex !== null
+              ? selectedCategoryId
+                ? "visited"
+                : "current"
+              : "current",
         });
       }
-      if (openedDepth >= 2 && selectedCategoryId) {
+      if (showPhraseLevel && selectedCategoryId) {
         groups.push({
           parentId: selectedCategoryId,
           state: selectedPhrase ? "visited" : "current",
         });
       }
-      if (openedDepth >= 3 && selectedPhraseNodeId) {
+      if (showTokenLevel && selectedPhraseNodeId) {
         groups.push({
           parentId: selectedPhraseNodeId,
           state: selectedKeyword ? "visited" : "current",
@@ -348,7 +391,20 @@ export function CategoryMemoryBTree() {
       cancelAnimationFrame(animationFrame);
       window.clearTimeout(settledAnimation);
     };
-  }, [openedDepth, selectedCategoryId, selectedKeyword, selectedPageId, selectedPhrase, selectedPhraseNodeId]);
+  }, [
+    createdCategoryIds,
+    leafProbeIndex,
+    selectedCategoryId,
+    selectedKeyword,
+    selectedPageId,
+    selectedPhrase,
+    selectedPhraseNodeId,
+    showLeafLevel,
+    showPhraseLevel,
+    showTokenLevel,
+    spawnedKeywords,
+    spawnedPhrases,
+  ]);
 
   function selectPage(pageId: string) {
     setMode("manual");
@@ -356,20 +412,28 @@ export function CategoryMemoryBTree() {
     setSelectedCategoryId(null);
     setSelectedPhrase(null);
     setSelectedKeyword(null);
+    setLeafProbeIndex(null);
+    setCreatedCategoryIds([]);
+    setSpawnedPhrases([]);
+    setSpawnedKeywords([]);
   }
 
   function selectCategory(categoryId: string) {
     setMode("manual");
-    setSelectedPageId(pageForCategory(categoryId)?.pageId ?? null);
+    setSelectedPageId(pageForCategory(categoryId)?.pageId ?? selectedPageId);
     setSelectedCategoryId(categoryId);
     setSelectedPhrase(null);
     setSelectedKeyword(null);
+    setLeafProbeIndex(null);
+    setSpawnedPhrases([]);
+    setSpawnedKeywords([]);
   }
 
   function selectPhrase(phrase: string) {
     setMode("manual");
     setSelectedPhrase(phrase);
     setSelectedKeyword(null);
+    setSpawnedKeywords([]);
   }
 
   function selectKeyword(keyword: string) {
@@ -378,12 +442,16 @@ export function CategoryMemoryBTree() {
   }
 
   function replayDemo() {
-    const first = DEMO_LEVEL_SELECTIONS[0];
-    setSelectedPageId(first.pageId);
-    setSelectedCategoryId(first.categoryId);
-    setSelectedPhrase(first.phrase);
-    setSelectedKeyword(first.keyword);
-    setDemoStep(0);
+    setSelectedPageId(DEMO_LOOKUP.branchId);
+    setSelectedCategoryId(null);
+    setSelectedPhrase(null);
+    setSelectedKeyword(null);
+    setCreatedCategoryIds([]);
+    setSpawnedPhrases([]);
+    setSpawnedKeywords([]);
+    setLeafProbeIndex(0);
+    setDemoPhase("probe");
+    leafLevelOpenedRef.current = false;
     setMode("auto");
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -401,7 +469,7 @@ export function CategoryMemoryBTree() {
         ? "Manual inspection · autoplay stopped"
         : mode === "complete"
           ? "Leaf payload match · 앰플"
-          : (DEMO_LEVEL_SELECTIONS[demoStep]?.status ?? "AI index scan");
+          : phaseStatus(demoPhase, leafProbeIndex, initialLeafCount);
 
   return (
     <section
@@ -444,7 +512,7 @@ export function CategoryMemoryBTree() {
         <div className={styles.scanIdentity}>
           <span className={styles.scanLamp} data-mode={mode} />
           <div>
-            <span>Deterministic demo</span>
+            <span>Phase2 · create-on-miss</span>
             <strong>AI index scan</strong>
           </div>
         </div>
@@ -527,13 +595,17 @@ export function CategoryMemoryBTree() {
         <ol className={styles.branchFan}>
           {CATEGORY_INDEX_PAGES.map((page, index) => {
             const isSelected = selectedPageId === page.pageId;
+            const leafCount =
+              page.pageId === DEMO_LOOKUP.branchId
+                ? page.categoryIds.length + createdCategoryIds.length
+                : page.categoryIds.length;
             return (
               <li key={page.pageId} style={cascadeStyle(index)}>
                 <button
                   type="button"
                   className={`${styles.dbPage} ${styles.branchPage} ${
                     isSelected
-                      ? selectedCategoryId
+                      ? selectedCategoryId || leafProbeIndex !== null
                         ? styles.nodeVisited
                         : styles.nodeCurrent
                       : ""
@@ -548,9 +620,11 @@ export function CategoryMemoryBTree() {
                     <code>{page.blockAddress}</code>
                   </span>
                   <strong>{page.label}</strong>
-                  <small>{page.categoryIds.length} leaf tuples</small>
+                  <small>{leafCount} leaf tuples</small>
                   <code>ptr → {page.pageId}</code>
-                  {isSelected && !selectedCategoryId ? (
+                  {isSelected &&
+                  leafProbeIndex === null &&
+                  !selectedCategoryId ? (
                     <ScanCursor label="RANGE HIT" />
                   ) : null}
                 </button>
@@ -568,39 +642,55 @@ export function CategoryMemoryBTree() {
               <span>LEVEL 02 · LINKED LEAF PAGE</span>
               <p>
                 {selectedPage.pageId} · key range {selectedPage.keyRange} ·
-                sibling pointers remain at leaf level
+                {createdCategoryIds.length
+                  ? " runtime insert after miss"
+                  : " probe existing slots"}
               </p>
             </header>
             <ol className={styles.leafChain}>
-              {selectedPage.categoryIds.map((categoryId, index) => {
+              {visibleLeafIds.map((categoryId, index) => {
                 const category = categoryById(categoryId);
                 if (!category) return null;
+                const isCreated = createdCategoryIds.includes(categoryId);
+                const isProbed =
+                  mode !== "manual" &&
+                  demoPhase === "probe" &&
+                  leafProbeIndex === index;
                 const isSelected = categoryId === selectedCategoryId;
+                const isCurrent = isSelected || isProbed;
                 return (
-                  <li key={categoryId} style={cascadeStyle(index)}>
+                  <li
+                    key={`${categoryId}-${isCreated ? "created" : "seed"}`}
+                    style={cascadeStyle(index)}
+                  >
                     <button
                       type="button"
                       className={`${styles.dbPage} ${styles.leafPage} ${
-                        isSelected
+                        isCurrent
                           ? selectedPhrase
                             ? styles.nodeVisited
                             : styles.nodeCurrent
                           : ""
                       }`}
-                      aria-pressed={isSelected}
+                      aria-pressed={isSelected || isProbed}
                       onClick={() => selectCategory(categoryId)}
                       data-edge-parent={selectedPage.pageId}
                       data-edge-node={categoryId}
                     >
                       <span className={styles.pageChrome}>
-                        <span>LEAF SLOT {String(index).padStart(2, "0")}</span>
+                        <span>
+                          {isCreated ? "NEW LEAF" : "LEAF SLOT"}{" "}
+                          {String(index).padStart(2, "0")}
+                        </span>
                         <code>tid ({index + 11},1)</code>
                       </span>
                       <strong>{category.label}</strong>
                       <code>{category.categoryId}</code>
                       <small>
-                        created_by={category.createdBy} · centroid=vector(1536)
+                        created_by={isCreated ? "runtime" : category.createdBy}{" "}
+                        · centroid=vector(1536)
                       </small>
+                      {isProbed ? <ScanCursor label="LEAF PROBE" /> : null}
                       {isSelected && !selectedPhrase ? (
                         <ScanCursor label="LEAF HIT" />
                       ) : null}
@@ -620,16 +710,19 @@ export function CategoryMemoryBTree() {
             <header className={styles.levelHeader}>
               <span>LEVEL 03 · CENTROID PAYLOAD</span>
               <p>
-                Semantic probes from {selectedCategory.categoryId}; not a B+
-                tree child page.
+                Semantic probes from {selectedCategory.categoryId}; spawn one
+                payload node on miss.
               </p>
             </header>
-            {selectedCategory.centroidPhrases.length ? (
+            {phrasesToShow.length ? (
               <ol className={styles.payloadGrid}>
-                {selectedCategory.centroidPhrases.map((phrase, index) => {
+                {phrasesToShow.map((phrase, index) => {
                   const isSelected = phrase === selectedPhrase;
                   return (
-                    <li key={phrase} style={cascadeStyle(index)}>
+                    <li
+                      key={`spawn-phrase-${phrase}`}
+                      style={cascadeStyle(index)}
+                    >
                       <button
                         type="button"
                         className={`${styles.payloadRecord} ${
@@ -644,7 +737,9 @@ export function CategoryMemoryBTree() {
                         data-edge-parent={selectedCategory.categoryId}
                         data-edge-node={`phrase-${index}`}
                       >
-                        <span>vector probe {String(index + 1).padStart(2, "0")}</span>
+                        <span>
+                          vector probe {String(index + 1).padStart(2, "0")}
+                        </span>
                         <strong>{phrase}</strong>
                         <code>cosine candidate</code>
                         {isSelected && !selectedKeyword ? (
@@ -657,8 +752,8 @@ export function CategoryMemoryBTree() {
               </ol>
             ) : (
               <div className={styles.emptyPage}>
-                <strong>No centroid phrase</strong>
-                <p>UNCATEGORIZED is the pipeline fallback record.</p>
+                <strong>No centroid phrase yet</strong>
+                <p>Waiting for runtime spawn…</p>
               </div>
             )}
           </div>
@@ -673,28 +768,38 @@ export function CategoryMemoryBTree() {
               <span>LEVEL 04 · SEMANTIC TOKEN LEAVES</span>
               <p>{selectedPhrase}</p>
             </header>
-            <ol className={styles.tokenChain}>
-              {keywords.map((keyword, index) => {
-                const isSelected = keyword === selectedKeyword;
-                return (
-                  <li key={keyword} style={cascadeStyle(index)}>
-                    <button
-                      type="button"
-                      className={`${styles.tokenRecord} ${
-                        isSelected ? styles.nodeHit : ""
-                      }`}
-                      aria-pressed={isSelected}
-                      onClick={() => selectKeyword(keyword)}
-                      data-edge-parent={selectedPhraseNodeId ?? ""}
-                      data-edge-node={`token-${index}`}
+            {keywordsToShow.length ? (
+              <ol className={styles.tokenChain}>
+                {keywordsToShow.map((keyword, index) => {
+                  const isSelected = keyword === selectedKeyword;
+                  return (
+                    <li
+                      key={`spawn-token-${keyword}`}
+                      style={cascadeStyle(index)}
                     >
-                      <span>{String(index).padStart(2, "0")}</span>
-                      <strong>{keyword}</strong>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
+                      <button
+                        type="button"
+                        className={`${styles.tokenRecord} ${
+                          isSelected ? styles.nodeHit : ""
+                        }`}
+                        aria-pressed={isSelected}
+                        onClick={() => selectKeyword(keyword)}
+                        data-edge-parent={selectedPhraseNodeId ?? ""}
+                        data-edge-node={`token-${index}`}
+                      >
+                        <span>{String(index).padStart(2, "0")}</span>
+                        <strong>{keyword}</strong>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <div className={styles.emptyPage}>
+                <strong>No token leaf yet</strong>
+                <p>Waiting for runtime spawn…</p>
+              </div>
+            )}
             {selectedKeyword ? (
               <div className={styles.matchReceipt} role="status">
                 <span>MATCH FOUND</span>
@@ -712,14 +817,13 @@ export function CategoryMemoryBTree() {
           <strong>PK lookup projection</strong>
         </div>
         <p>
-          B+ tree styling describes the category_id lookup path. The persisted
-          category table is flat; centroid similarity uses a separate IVFFlat
-          vector index.
+          Phase2 demo: miss on leaf page inserts 뷰티, then spawns one payload
+          and one token node down the path.
         </p>
         <dl>
           <div>
             <dt>rows</dt>
-            <dd>demo · 6–8 nodes / level</dd>
+            <dd>probe → create · 1 node / deeper level</dd>
           </div>
           <div>
             <dt>centroid</dt>
