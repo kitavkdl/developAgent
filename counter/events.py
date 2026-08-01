@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from typing import Any
 
 TERMINAL_EVENTS = {"job.completed", "job.failed", "job.degraded"}
@@ -37,16 +38,22 @@ class TraceEmitter:
         self.job_id = job_id
         self._seq = 0
         self._terminated = False
+        self._lock = threading.Lock()  # S5 검색/평가 병렬화로 여러 스레드가 동시에 emit 가능
 
     def emit(self, event_type: str, payload: dict | None = None, provider: str = "app") -> None:
-        if self._terminated:
-            # 종료 이벤트는 정확히 1회 — 이후 발행은 계약 위반이므로 조용히 버리지 않고 막는다
-            raise RuntimeError(f"job {self.job_id}: 종료 이벤트 이후 발행 시도 ({event_type})")
-        if event_type in TERMINAL_EVENTS:
-            self._terminated = True
-        self._seq += 1
+        # seq 채번 + 종료 플래그 검사/설정을 하나의 원자적 구간으로 묶는다 —
+        # 아니면 두 스레드가 동시에 emit할 때 같은 seq를 뽑아 UNIQUE(job_id, seq)
+        # 제약 위반으로 죽거나, 종료 이벤트 중복 발행 체크가 깨질 수 있다.
+        with self._lock:
+            if self._terminated:
+                # 종료 이벤트는 정확히 1회 — 이후 발행은 계약 위반이므로 조용히 버리지 않고 막는다
+                raise RuntimeError(f"job {self.job_id}: 종료 이벤트 이후 발행 시도 ({event_type})")
+            if event_type in TERMINAL_EVENTS:
+                self._terminated = True
+            self._seq += 1
+            seq = self._seq
         self._db.insert_trace_event(
-            self.job_id, self._seq, event_type, provider, mask_secrets(payload or {})
+            self.job_id, seq, event_type, provider, mask_secrets(payload or {})
         )
 
     @property

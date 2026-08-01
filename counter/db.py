@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import uuid
 from contextlib import contextmanager
 from typing import Any
@@ -34,6 +35,11 @@ class Db:
             raise RuntimeError("DATABASE_URL이 설정되지 않았습니다 (.streamlit/secrets.toml 참조)")
         self._dsn = settings.database_url
         self._conn = None
+        # S5 검색/평가가 여러 스레드에서 동시에 이 인스턴스를 쓸 수 있음(같은 job
+        # worker_db를 공유) — 단일 psycopg2 커넥션은 동시 실행을 지원하지 않으므로
+        # cursor() 사용 구간 전체를 직렬화한다. 느린 건 LINER/OpenAI 네트워크
+        # 호출(락 밖)이고 DB 왕복은 짧아 병렬성 손실은 미미하다.
+        self._lock = threading.Lock()
 
     def _connection(self):
         if self._conn is not None and not self._conn.closed:
@@ -62,13 +68,19 @@ class Db:
         # "generator didn't stop after throw()"로 거부함). 재연결은
         # _connection()의 선제 헬스체크가 담당하고, 여기서는 실행 중
         # 끊기는 드문 케이스에 한해 커넥션만 무효화하고 그대로 전파한다.
-        conn = self._connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                yield cur
-        except psycopg2.OperationalError:
-            self._conn = None
-            raise
+        #
+        # self._lock을 yield 바깥까지 통째로 감싸서, 호출자가
+        # `with self.cursor() as cur: ...`를 벗어날 때까지 다른 스레드가
+        # 같은 커넥션을 건드리지 못하게 한다 (동시 스레드 접근은 psycopg2
+        # 커넥션 하나로는 안전하지 않음).
+        with self._lock:
+            conn = self._connection()
+            try:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    yield cur
+            except psycopg2.OperationalError:
+                self._conn = None
+                raise
 
     # ---- 마이그레이션 ----
 

@@ -75,6 +75,12 @@ class Settings:
     liner_supports_date_filter: bool = False  # L3 미확인 → 기본 false = 델타 서치 스코프 아웃
     liner_timeout_seconds: float = 15.0
     liner_qps: float = 1.0
+    # S5 검색/평가 병렬 실행 상한 (D-04 역할 경계는 유지 — 병렬화는 애플리케이션
+    # 코드가 LINER/OpenAI 호출을 동시에 여러 개 여는 것이지, LLM이 오케스트레이션을
+    # 대신하는 게 아니다). liner_qps가 실제 발사 속도를 이미 직렬화하므로 이 값은
+    # "동시에 대기 중일 수 있는 최대 개수"의 상한일 뿐이다.
+    max_parallel_searches: int = 4
+    max_parallel_evaluations: int = 4
 
     # OpenAI 모델 배정 (MODELS_AND_APIS §2.2)
     model_intake: str = "gpt-5.6-terra"
@@ -110,6 +116,8 @@ def load_settings() -> Settings:
         liner_supports_date_filter=_get_bool("LINER_SUPPORTS_DATE_FILTER", False),
         liner_timeout_seconds=_get_float("LINER_TIMEOUT_SECONDS", 15.0),
         liner_qps=_get_float("LINER_QPS", 1.0),
+        max_parallel_searches=_get_int("MAX_PARALLEL_SEARCHES", 4),
+        max_parallel_evaluations=_get_int("MAX_PARALLEL_EVALUATIONS", 4),
         model_intake=_get("OPENAI_MODEL_INTAKE", "gpt-5.6-terra"),
         model_triage=_get("OPENAI_MODEL_TRIAGE", "gpt-5.6-terra"),
         model_router=_get("OPENAI_MODEL_ROUTER", "gpt-5.6-luna"),
