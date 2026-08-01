@@ -326,18 +326,33 @@
 }
 
 .levelHeader {
+  position: relative;
+  z-index: 2;
   display: grid;
   justify-items: center;
-  margin: 1.7rem 0 0.9rem;
+  width: fit-content;
+  max-width: min(100%, 64ch);
+  margin: 1.7rem auto 0.9rem;
+  padding: 0.55rem 1rem 0.65rem;
   text-align: center;
+  border: 1px solid rgba(174, 205, 188, 0.18);
+  border-radius: 0.3rem;
+  background: rgba(7, 17, 13, 0.94);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025);
 }
 
 .levelHeader span {
+  position: relative;
+  z-index: 1;
   color: #d9a75e;
   font-size: 0.58rem;
 }
 
 .levelHeader p {
+  position: relative;
+  z-index: 1;
   max-width: 62ch;
   margin: 0.32rem 0 0;
   color: #71887c;
