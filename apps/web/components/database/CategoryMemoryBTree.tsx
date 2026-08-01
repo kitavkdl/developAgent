@@ -191,10 +191,6 @@ export function CategoryMemoryBTree() {
     if (selectedPhrase) scrollLevelIntoView(keywordLevelRef.current, "center");
   }, [selectedPhrase]);
 
-  useEffect(() => {
-    if (selectedKeyword) scrollLevelIntoView(keywordLevelRef.current, "end");
-  }, [selectedKeyword]);
-
   useLayoutEffect(() => {
     const currentTree = treeRef.current;
     if (!currentTree) return;
