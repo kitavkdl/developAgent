@@ -41,8 +41,7 @@ interface FrontendDemoNode<T> {
   source: T;
 }
 
-const DEMO_START_DELAY_MS = 700;
-const DEMO_STEP_MS = 1150;
+const DEMO_STAGE_INTERVAL_MS = 1150;
 const FRONTEND_DEMO_NODE_COUNT = 15;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
 
@@ -60,6 +59,14 @@ function createFrontendDemoNodes<T>(
 
 function cascadeStyle(index: number): CascadeStyle {
   return { "--node-index": index };
+}
+
+function fullCategoryRange(page: CategoryIndexPage) {
+  const firstCategoryId = page.categoryIds[0];
+  const lastCategoryId = page.categoryIds[page.categoryIds.length - 1];
+  return firstCategoryId && lastCategoryId
+    ? `${firstCategoryId} → ${lastCategoryId}`
+    : page.keyRange;
 }
 
 function scrollLevelIntoView(node: HTMLElement | null) {
@@ -174,7 +181,6 @@ export function CategoryMemoryBTree() {
   useEffect(() => {
     if (mode !== "auto") return;
 
-    const delay = demoStep === 0 ? DEMO_START_DELAY_MS : DEMO_STEP_MS;
     const timer = window.setTimeout(() => {
       const nextStep = demoStep + 1;
 
@@ -217,7 +223,7 @@ export function CategoryMemoryBTree() {
 
       if (nextStep <= 4) setDemoStep(nextStep);
       else setMode("complete");
-    }, delay);
+    }, DEMO_STAGE_INTERVAL_MS);
 
     return () => window.clearTimeout(timer);
   }, [demoStep, leafNodes, mode, pageNodes, phraseNodes, tokenNodes]);
@@ -550,7 +556,7 @@ export function CategoryMemoryBTree() {
                     <span>DEMO PAGE {String(index + 1).padStart(2, "0")}</span>
                     <code>{page.blockAddress}</code>
                   </span>
-                  <strong>[ {page.keyRange} ]</strong>
+                  <strong>[ {fullCategoryRange(page)} ]</strong>
                   <small>frontend-only · {page.categoryIds.length} seed refs</small>
                   <code>ptr → {node.nodeId}</code>
                   {isSelected && !selectedLeafNodeId ? (
@@ -570,7 +576,7 @@ export function CategoryMemoryBTree() {
             <header className={styles.levelHeader}>
               <span>LEVEL 02 · LINKED LEAF PAGE</span>
               <p>
-                {selectedPage.pageId} · key range {selectedPage.keyRange} ·
+                {selectedPage.pageId} · key range {fullCategoryRange(selectedPage)} ·
                 15 frontend-only nodes · horizontally scrollable
               </p>
             </header>

@@ -476,14 +476,11 @@ button.dbPage:focus-visible,
 .payloadGrid > li,
 .tokenChain > li {
   position: relative;
+  --delay: calc(var(--node-index) * 100ms);
   flex: 0 0 13.5rem;
   min-width: 13.5rem;
-  scroll-snap-align: center;
-}
-
-.branchFan > li {
-  --delay: calc(var(--node-index) * 90ms);
   animation: page-descend 0.72s var(--delay) var(--ease-stage) both;
+  scroll-snap-align: center;
 }
 
 .branchPage {
@@ -496,8 +493,10 @@ button.dbPage:focus-visible,
   align-self: center;
   color: #d6e2db;
   font-family: var(--font-mono);
-  font-size: clamp(1.1rem, 2.4vw, 1.7rem);
+  font-size: 0.7rem;
   font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
   text-align: center;
 }
 
@@ -511,11 +510,6 @@ button.dbPage:focus-visible,
 
 .leafChain {
   gap: 1.8rem;
-}
-
-.leafChain > li {
-  --delay: calc(var(--node-index) * 100ms);
-  animation: page-descend 0.72s var(--delay) var(--ease-stage) both;
 }
 
 .leafChain > li:not(:last-child)::before {
@@ -569,11 +563,6 @@ button.dbPage:focus-visible,
   gap: 0.9rem;
 }
 
-.payloadGrid > li {
-  --delay: calc(var(--node-index) * 100ms);
-  animation: page-descend 0.72s var(--delay) var(--ease-stage) both;
-}
-
 .payloadRecord {
   display: grid;
   gap: 0.7rem;
@@ -601,11 +590,6 @@ button.dbPage:focus-visible,
 
 .tokenChain {
   gap: 0.6rem;
-}
-
-.tokenChain > li {
-  --delay: calc(var(--node-index) * 105ms);
-  animation: page-descend 0.72s var(--delay) var(--ease-stage) both;
 }
 
 .tokenRecord {
