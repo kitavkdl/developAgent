@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,19 @@ import styles from "@/app/database/database.module.css";
 
 type ScanMode = "auto" | "paused" | "manual" | "complete";
 type CascadeStyle = CSSProperties & { "--node-index": number };
+type EdgeState = "current" | "visited";
+
+interface TreeEdge {
+  id: string;
+  path: string;
+  state: EdgeState;
+}
+
+interface EdgeCanvas {
+  width: number;
+  height: number;
+  edges: TreeEdge[];
+}
 
 const DEMO_START_DELAY_MS = 700;
 const DEMO_STEP_MS = 1150;
@@ -60,9 +74,15 @@ export function CategoryMemoryBTree() {
   const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
   const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
 
+  const treeRef = useRef<HTMLElement>(null);
   const leafLevelRef = useRef<HTMLDivElement>(null);
   const phraseLevelRef = useRef<HTMLDivElement>(null);
   const keywordLevelRef = useRef<HTMLDivElement>(null);
+  const [edgeCanvas, setEdgeCanvas] = useState<EdgeCanvas>({
+    width: 0,
+    height: 0,
+    edges: [],
+  });
 
   const selectedPage = useMemo(
     () =>
@@ -78,6 +98,9 @@ export function CategoryMemoryBTree() {
     () => (selectedPhrase ? phraseKeywords(selectedPhrase) : []),
     [selectedPhrase],
   );
+  const selectedPhraseNodeId = selectedPhrase
+    ? `phrase-${selectedCategory?.centroidPhrases.indexOf(selectedPhrase)}`
+    : null;
 
   const visibleDepth = selectedKeyword
     ? 4
@@ -119,6 +142,89 @@ export function CategoryMemoryBTree() {
   useEffect(() => {
     if (selectedPhrase) scrollLevelIntoView(keywordLevelRef.current);
   }, [selectedPhrase]);
+
+  useLayoutEffect(() => {
+    const currentTree = treeRef.current;
+    if (!currentTree) return;
+    const treeElement: HTMLElement = currentTree;
+
+    function updateEdges() {
+      const treeRect = treeElement.getBoundingClientRect();
+      const groups: Array<{ parentId: string; state: EdgeState }> = [
+        {
+          parentId: "index-root",
+          state: selectedPageId ? "visited" : "current",
+        },
+      ];
+
+      if (selectedPageId) {
+        groups.push({
+          parentId: selectedPageId,
+          state: selectedCategoryId ? "visited" : "current",
+        });
+      }
+      if (selectedCategoryId) {
+        groups.push({
+          parentId: selectedCategoryId,
+          state: selectedPhrase ? "visited" : "current",
+        });
+      }
+      if (selectedPhraseNodeId) {
+        groups.push({
+          parentId: selectedPhraseNodeId,
+          state: selectedKeyword ? "visited" : "current",
+        });
+      }
+
+      const edges = groups.flatMap(({ parentId, state }) => {
+        const parent = treeElement.querySelector<HTMLElement>(
+          `[data-edge-node="${parentId}"]`,
+        );
+        const children = Array.from(
+          treeElement.querySelectorAll<HTMLElement>(
+            `[data-edge-parent="${parentId}"]`,
+          ),
+        );
+        if (!parent || children.length === 0) return [];
+
+        const parentRect = parent.getBoundingClientRect();
+        const parentX = parentRect.left - treeRect.left + parentRect.width / 2;
+        const parentY = parentRect.bottom - treeRect.top;
+
+        return children.map((child, index) => {
+          const childRect = child.getBoundingClientRect();
+          const childX = childRect.left - treeRect.left + childRect.width / 2;
+          const childY = childRect.top - treeRect.top;
+          const splitY = parentY + Math.max(22, (childY - parentY) * 0.42);
+          return {
+            id: `${parentId}-${index}`,
+            path: `M ${parentX} ${parentY} V ${splitY} H ${childX} V ${childY}`,
+            state,
+          };
+        });
+      });
+
+      setEdgeCanvas({
+        width: Math.round(treeElement.clientWidth),
+        height: Math.round(treeElement.scrollHeight),
+        edges,
+      });
+    }
+
+    updateEdges();
+    const resizeObserver = new ResizeObserver(updateEdges);
+    resizeObserver.observe(treeElement);
+    window.addEventListener("resize", updateEdges);
+    const animationFrame = requestAnimationFrame(updateEdges);
+    const settledAnimation = window.setTimeout(updateEdges, 800);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateEdges);
+      cancelAnimationFrame(animationFrame);
+      window.clearTimeout(settledAnimation);
+    };
+  }, [selectedCategoryId, selectedKeyword, selectedPageId, selectedPhrase, selectedPhraseNodeId]);
 
   function selectPage(pageId: string) {
     setMode("manual");
@@ -179,7 +285,42 @@ export function CategoryMemoryBTree() {
             ][demoStep];
 
   return (
-    <section className={styles.tree} aria-labelledby="category-index-title">
+    <section
+      className={styles.tree}
+      ref={treeRef}
+      aria-labelledby="category-index-title"
+    >
+      {edgeCanvas.width > 0 ? (
+        <svg
+          className={styles.edgeLayer}
+          width={edgeCanvas.width}
+          height={edgeCanvas.height}
+          viewBox={`0 0 ${edgeCanvas.width} ${edgeCanvas.height}`}
+          aria-hidden="true"
+        >
+          <defs>
+            <marker
+              id="tree-edge-arrow"
+              markerWidth="7"
+              markerHeight="7"
+              refX="5.5"
+              refY="3.5"
+              orient="auto"
+            >
+              <path d="M 0 0 L 7 3.5 L 0 7 z" fill="#7fbe98" />
+            </marker>
+          </defs>
+          {edgeCanvas.edges.map((edge) => (
+            <path
+              key={edge.id}
+              d={edge.path}
+              data-edge-id={edge.id}
+              data-state={edge.state}
+              markerEnd="url(#tree-edge-arrow)"
+            />
+          ))}
+        </svg>
+      ) : null}
       <div className={styles.scanConsole}>
         <div className={styles.scanIdentity}>
           <span className={styles.scanLamp} data-mode={mode} />
@@ -237,6 +378,7 @@ export function CategoryMemoryBTree() {
           className={`${styles.dbPage} ${styles.rootPage} ${
             selectedPageId ? styles.nodeVisited : styles.nodeCurrent
           }`}
+          data-edge-node="index-root"
         >
           <div className={styles.pageChrome}>
             <span>ROOT PAGE</span>
@@ -254,10 +396,7 @@ export function CategoryMemoryBTree() {
         </article>
       </div>
 
-      <div className={styles.verticalPointer} aria-hidden="true">
-        <span />
-        <i>child ptr</i>
-      </div>
+      <div className={styles.edgeGap} aria-hidden="true" />
 
       <div className={styles.treeLevel}>
         <header className={styles.levelHeader}>
@@ -280,6 +419,8 @@ export function CategoryMemoryBTree() {
                   }`}
                   aria-pressed={isSelected}
                   onClick={() => selectPage(page.pageId)}
+                  data-edge-parent="index-root"
+                  data-edge-node={page.pageId}
                 >
                   <span className={styles.pageChrome}>
                     <span>INTERNAL {String(index + 1).padStart(2, "0")}</span>
@@ -300,10 +441,7 @@ export function CategoryMemoryBTree() {
 
       {selectedPage ? (
         <>
-          <div className={styles.verticalPointer} aria-hidden="true">
-            <span />
-            <i>{selectedPage.blockAddress}</i>
-          </div>
+          <div className={styles.edgeGap} aria-hidden="true" />
           <div className={styles.treeLevel} ref={leafLevelRef}>
             <header className={styles.levelHeader}>
               <span>LEVEL 02 · LINKED LEAF PAGE</span>
@@ -330,6 +468,8 @@ export function CategoryMemoryBTree() {
                       }`}
                       aria-pressed={isSelected}
                       onClick={() => selectCategory(categoryId)}
+                      data-edge-parent={selectedPage.pageId}
+                      data-edge-node={categoryId}
                     >
                       <span className={styles.pageChrome}>
                         <span>LEAF SLOT {String(index).padStart(2, "0")}</span>
@@ -354,10 +494,7 @@ export function CategoryMemoryBTree() {
 
       {selectedCategory ? (
         <>
-          <div className={styles.verticalPointer} aria-hidden="true">
-            <span />
-            <i>row payload</i>
-          </div>
+          <div className={styles.edgeGap} aria-hidden="true" />
           <div className={styles.treeLevel} ref={phraseLevelRef}>
             <header className={styles.levelHeader}>
               <span>LEVEL 03 · CENTROID PAYLOAD</span>
@@ -383,6 +520,8 @@ export function CategoryMemoryBTree() {
                         }`}
                         aria-pressed={isSelected}
                         onClick={() => selectPhrase(phrase)}
+                        data-edge-parent={selectedCategory.categoryId}
+                        data-edge-node={`phrase-${index}`}
                       >
                         <span>vector probe {String(index + 1).padStart(2, "0")}</span>
                         <strong>{phrase}</strong>
@@ -407,10 +546,7 @@ export function CategoryMemoryBTree() {
 
       {selectedPhrase ? (
         <>
-          <div className={styles.verticalPointer} aria-hidden="true">
-            <span />
-            <i>token scan</i>
-          </div>
+          <div className={styles.edgeGap} aria-hidden="true" />
           <div className={styles.treeLevel} ref={keywordLevelRef}>
             <header className={styles.levelHeader}>
               <span>LEVEL 04 · SEMANTIC TOKEN LEAVES</span>
@@ -428,6 +564,8 @@ export function CategoryMemoryBTree() {
                       }`}
                       aria-pressed={isSelected}
                       onClick={() => selectKeyword(keyword)}
+                      data-edge-parent={selectedPhraseNodeId ?? ""}
+                      data-edge-node={`token-${index}`}
                     >
                       <span>{String(index).padStart(2, "0")}</span>
                       <strong>{keyword}</strong>

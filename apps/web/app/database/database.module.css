@@ -125,8 +125,43 @@
 .tree {
   display: grid;
   justify-items: center;
+  position: relative;
+  isolation: isolate;
   width: min(100%, 98rem);
   margin-inline: auto;
+}
+
+.edgeLayer {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.edgeLayer path {
+  fill: none;
+  stroke: rgba(127, 190, 152, 0.78);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
+  vector-effect: non-scaling-stroke;
+}
+
+.edgeLayer path[data-state="current"] {
+  stroke: #d9a75e;
+  stroke-width: 1.45;
+  filter: drop-shadow(0 0 3px rgba(217, 167, 94, 0.45));
+  animation: edge-reveal 0.7s var(--ease-stage) both;
+}
+
+.treeLevel,
+.scanConsole,
+.edgeGap,
+.projectionNote {
+  position: relative;
+  z-index: 1;
 }
 
 .scanConsole {
@@ -410,36 +445,8 @@ button.dbPage:focus-visible,
   overflow-wrap: anywhere;
 }
 
-.verticalPointer {
-  display: grid;
-  grid-template-rows: 1fr auto;
-  justify-items: center;
-  height: 4.5rem;
-  animation: pointer-grow 0.7s var(--ease-stage) both;
-}
-
-.verticalPointer span {
-  width: 1px;
-  height: 100%;
-  background: linear-gradient(to bottom, #b47e42, rgba(180, 126, 66, 0.12));
-  transform-origin: top;
-}
-
-.verticalPointer i {
-  align-self: end;
-  height: auto;
-  margin-top: -1.35rem;
-  border: 1px solid rgba(217, 167, 94, 0.34);
-  border-radius: 999px;
-  padding: 0.18rem 0.4rem;
-  color: #9d784c;
-  font-family: var(--font-mono);
-  font-size: 0.46rem;
-  font-style: normal;
-  letter-spacing: 0.04em;
-  line-height: 1;
-  white-space: nowrap;
-  background: #0b1c15;
+.edgeGap {
+  height: clamp(2.5rem, 6vw, 4rem);
 }
 
 .branchFan,
@@ -452,39 +459,17 @@ button.dbPage:focus-visible,
 }
 
 .branchFan {
-  position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: clamp(0.7rem, 2vw, 1.5rem);
   width: min(100%, 72rem);
   margin-inline: auto;
-  padding-top: 1.25rem;
-}
-
-.branchFan::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: calc(16.66% - 0.4rem);
-  left: calc(16.66% - 0.4rem);
-  height: 1px;
-  background: rgba(180, 126, 66, 0.5);
 }
 
 .branchFan > li {
   --delay: calc(var(--node-index) * 90ms);
   position: relative;
   animation: page-descend 0.72s var(--delay) var(--ease-stage) both;
-}
-
-.branchFan > li::before {
-  content: "";
-  position: absolute;
-  top: -1.25rem;
-  left: 50%;
-  width: 1px;
-  height: 1.25rem;
-  background: rgba(180, 126, 66, 0.5);
 }
 
 .branchPage {
@@ -866,14 +851,14 @@ button.dbPage:focus-visible,
   }
 }
 
-@keyframes pointer-grow {
+@keyframes edge-reveal {
   from {
-    opacity: 0;
-    transform: scaleY(0);
+    opacity: 0.15;
+    stroke-dasharray: 4 7;
   }
   to {
     opacity: 1;
-    transform: scaleY(1);
+    stroke-dasharray: 0;
   }
 }
 
@@ -971,11 +956,6 @@ button.dbPage:focus-visible,
     scroll-snap-type: inline mandatory;
   }
 
-  .branchFan::before,
-  .branchFan > li::before {
-    display: none;
-  }
-
   .branchFan > li {
     flex: 0 0 min(76vw, 16rem);
     scroll-snap-align: center;
@@ -1023,7 +1003,7 @@ button.dbPage:focus-visible,
   .leafChain > li,
   .payloadGrid > li,
   .tokenChain > li,
-  .verticalPointer,
+  .edgeLayer path,
   .matchReceipt {
     animation-duration: 1ms !important;
     animation-delay: 0s !important;
