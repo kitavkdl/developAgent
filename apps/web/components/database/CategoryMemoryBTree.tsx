@@ -205,6 +205,10 @@ export function CategoryMemoryBTree() {
   }, [mode, selectedPhrase, spawnedKeywords]);
 
   const keywordsKey = keywordsToShow.join("|");
+  const visibleLeafIdsRef = useRef(visibleLeafIds);
+  const keywordsToShowRef = useRef(keywordsToShow);
+  visibleLeafIdsRef.current = visibleLeafIds;
+  keywordsToShowRef.current = keywordsToShow;
 
   const selectedPhraseNodeId =
     selectedPhrase && phrasesToShow.includes(selectedPhrase)
@@ -323,12 +327,14 @@ export function CategoryMemoryBTree() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  const edgeSnapshotRef = useRef<string>("");
+
   useLayoutEffect(() => {
     const currentTree = treeRef.current;
     if (!currentTree) return;
     const treeElement: HTMLElement = currentTree;
 
-    function updateEdges() {
+    function buildEdges() {
       const treeRect = treeElement.getBoundingClientRect();
       const links: Array<{
         parentId: string;
@@ -336,7 +342,6 @@ export function CategoryMemoryBTree() {
         state: EdgeState;
       }> = [];
 
-      // Root → selected branch only (avoid lighting every L1 arrow at once).
       if (selectedPageId) {
         links.push({
           parentId: "index-root",
@@ -348,7 +353,6 @@ export function CategoryMemoryBTree() {
         });
       }
 
-      // Branch → leaf: only probed / selected targets.
       if (showLeafLevel && selectedPageId) {
         if (
           mode !== "manual" &&
@@ -356,7 +360,7 @@ export function CategoryMemoryBTree() {
           leafProbeIndex !== null
         ) {
           for (let i = 0; i <= leafProbeIndex; i++) {
-            const childId = visibleLeafIds[i];
+            const childId = visibleLeafIdsRef.current[i];
             if (!childId) continue;
             links.push({
               parentId: selectedPageId,
@@ -385,35 +389,39 @@ export function CategoryMemoryBTree() {
         showTokenLevel &&
         selectedPhraseNodeId &&
         selectedKeyword &&
-        keywordsToShow.includes(selectedKeyword)
+        keywordsToShowRef.current.includes(selectedKeyword)
       ) {
         links.push({
           parentId: selectedPhraseNodeId,
-          childId: `token-${keywordsToShow.indexOf(selectedKeyword)}`,
+          childId: `token-${keywordsToShowRef.current.indexOf(selectedKeyword)}`,
           state: "current",
         });
       }
 
+      const escapeAttr = (value: string) =>
+        value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
       const edges = links.flatMap(({ parentId, childId, state }) => {
-        const escape =
-          typeof CSS !== "undefined" && typeof CSS.escape === "function"
-            ? CSS.escape
-            : (value: string) => value.replace(/"/g, '\\"');
         const parent = treeElement.querySelector<HTMLElement>(
-          `[data-edge-node="${escape(parentId)}"]`,
+          `[data-edge-node="${escapeAttr(parentId)}"]`,
         );
         const child = treeElement.querySelector<HTMLElement>(
-          `[data-edge-node="${escape(childId)}"]`,
+          `[data-edge-node="${escapeAttr(childId)}"]`,
         );
         if (!parent || !child) return [];
 
         const parentRect = parent.getBoundingClientRect();
         const childRect = child.getBoundingClientRect();
-        const parentX = parentRect.left - treeRect.left + parentRect.width / 2;
-        const parentY = parentRect.bottom - treeRect.top;
-        const childX = childRect.left - treeRect.left + childRect.width / 2;
-        const childY = childRect.top - treeRect.top;
-        const splitY = parentY + Math.max(22, (childY - parentY) * 0.42);
+        const parentX = Math.round(
+          parentRect.left - treeRect.left + parentRect.width / 2,
+        );
+        const parentY = Math.round(parentRect.bottom - treeRect.top);
+        const childX = Math.round(
+          childRect.left - treeRect.left + childRect.width / 2,
+        );
+        const childY = Math.round(childRect.top - treeRect.top);
+        const splitY =
+          parentY + Math.max(22, Math.round((childY - parentY) * 0.42));
 
         return [
           {
@@ -424,24 +432,25 @@ export function CategoryMemoryBTree() {
         ];
       });
 
-      setEdgeCanvas({
+      const next: EdgeCanvas = {
         width: Math.round(treeElement.clientWidth),
         height: Math.round(treeElement.scrollHeight),
         edges,
-      });
+      };
+      const snapshot = JSON.stringify(next);
+      if (snapshot === edgeSnapshotRef.current) return;
+      edgeSnapshotRef.current = snapshot;
+      setEdgeCanvas(next);
     }
 
-    updateEdges();
-    const resizeObserver = new ResizeObserver(updateEdges);
-    resizeObserver.observe(treeElement);
-    window.addEventListener("resize", updateEdges);
-    const animationFrame = requestAnimationFrame(updateEdges);
-    const settledAnimation = window.setTimeout(updateEdges, 800);
+    // Sync once for this dependency snapshot; settle after cascade animation.
+    buildEdges();
+    const settledAnimation = window.setTimeout(buildEdges, 850);
+    const onResize = () => buildEdges();
+    window.addEventListener("resize", onResize);
 
     return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", updateEdges);
-      cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", onResize);
       window.clearTimeout(settledAnimation);
     };
   }, [
@@ -496,6 +505,7 @@ export function CategoryMemoryBTree() {
   }
 
   function replayDemo() {
+    edgeSnapshotRef.current = "";
     setSelectedPageId(DEMO_LOOKUP.branchId);
     setSelectedCategoryId(null);
     setSelectedPhrase(null);
