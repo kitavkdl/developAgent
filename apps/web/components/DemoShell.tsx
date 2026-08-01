@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { flushSync } from "react-dom";
 import { AgentTracePanel } from "@/components/AgentTracePanel";
+import { AnswerPreview } from "@/components/AnswerPreview";
 import { CacheStateBadge } from "@/components/CacheStateBadge";
 import { DetailDrawer } from "@/components/DetailDrawer";
 import { EvidenceGraph } from "@/components/EvidenceGraph";
@@ -116,6 +117,17 @@ export function DemoShell() {
               </p>
             </div>
             {!active ? <SearchBar onSubmit={handleSubmit} /> : null}
+            {active ? (
+              <div className="input-pane__answer-slot">
+                <AnswerPreview
+                  status={model.status}
+                  lastEventType={model.lastEventType}
+                  verdict={model.verdict}
+                  summary={model.summary}
+                  errorMessage={model.errorMessage}
+                />
+              </div>
+            ) : null}
             <div className="hero__controls">
               <ScenarioSwitcher value={scenario} onChange={setScenario} />
             </div>

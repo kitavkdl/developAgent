@@ -63,13 +63,13 @@
 
 ## P2.3 — Experimental Active Answer Preview
 
-- [ ] active 전환 시 `COUNTER` wordmark를 왼쪽 패널 상단 reset anchor로 이동
-- [ ] 기존 wordmark 중심 위치에 `AnswerPreview` 배치
-- [ ] submitting/streaming 중 현재 파이프라인 단계 안내
-- [ ] verdict 조립 후 실제 `verdict` / `summary`로 preview 교체
-- [ ] failed/degraded 상태를 성공 결과와 구분
-- [ ] 좁은 화면과 reduced-motion에서 읽기 순서·전환 보장
-- [ ] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
+- [x] active 전환 시 `COUNTER` wordmark를 왼쪽 패널 상단 reset anchor로 이동
+- [x] 기존 wordmark 중심 위치에 `AnswerPreview` 배치
+- [x] submitting/streaming 중 현재 파이프라인 단계 안내
+- [x] verdict 조립 후 실제 `verdict` / `summary`로 preview 교체
+- [x] failed/degraded 상태를 성공 결과와 구분
+- [x] 좁은 화면과 reduced-motion에서 읽기 순서·전환 보장
+- [x] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
 
 ## P3 — 이후 (제출 / 실연동 — 이 단계 비범위)
 
