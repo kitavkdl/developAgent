@@ -140,25 +140,6 @@ View Transition API 미지원 브라우저에서는 같은 상태 변경을 즉�
 전환만 허용한다. 이 기능은 더미 Next.js 프로토타입 전용이며 Streamlit 제출
 계약을 변경하지 않는다.
 
-### 3.5 Independent Database schema view
-
-`/database`는 기존 research workspace와 상태·레이아웃을 공유하지 않는 독립
-route다. 파일 경계는 `apps/web/app/database/`와
-`apps/web/components/database/` 아래에 둔다.
-
-- 스키마 SoT는 `SERVICE_ARCHITECTURE.md` §7의 영속화 모델이다.
-- `research_jobs`, `claims`, `search_runs`, `sources`, `source_snapshots`,
-  `evidence_units`, `verdict_versions`, `answer_versions`, `trace_events`를 각각
-  독립 table node로 표시한다.
-- 문서가 정의한 것은 주요 필드 수준의 논리 계약이며 migration DDL이 아니다.
-  UI는 PK/FK 타입이나 nullability를 추측하지 않고 관계 의미만 표시한다.
-- 각 node는 table 역할, 주요 필드, public/tenant-private 경계를 함께 보여준다.
-- source identity와 immutable snapshot, evidence lineage, job trace 관계를 edge로
-  표현한다.
-- 정적 스키마 메타데이터만 사용하며 브라우저가 DB에 직접 연결하지 않는다.
-- 넓은 화면은 관계 그래프, 좁은 화면은 동일 정보를 문서 순서의 카드 목록으로
-  읽을 수 있어야 한다.
-
 ---
 
 ## 4. 레이어

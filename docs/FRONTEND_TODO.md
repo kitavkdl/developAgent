@@ -71,16 +71,6 @@
 - [x] 좁은 화면과 reduced-motion에서 읽기 순서·전환 보장
 - [x] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
 
-## P2.4 — Independent Database Schema View
-
-- [x] `apps/web/app/database/` 독립 route 추가
-- [x] `SERVICE_ARCHITECTURE.md` §7의 9개 영속화 테이블을 각각 node로 표현
-- [x] 주요 필드 계약과 public/tenant-private 경계 표시
-- [x] source snapshot·evidence·verdict·answer·trace 관계 edge 표시
-- [x] migration DDL로 오인되지 않도록 논리 계약 범위 명시
-- [x] 좁은 화면에서 카드 목록 기반 읽기 순서 보장
-- [x] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
-
 ## P3 — 이후 (제출 / 실연동 — 이 단계 비범위)
 
 - [ ] Streamlit 입력·결과·세컨드 raw poll·통계 페이지
