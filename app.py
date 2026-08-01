@@ -7,10 +7,14 @@ UI는 파이프라인의 세 계약 함수(run_job / get_job_state / submit_feed
 from __future__ import annotations
 
 import base64
+import json
+import time
 
 import streamlit as st
 
+from counter.events import TERMINAL_EVENTS
 from counter.settings import bridge_secrets_to_env, load_settings
+from counter.state import derive_state
 
 st.set_page_config(page_title="COUNTER", page_icon="🔍", layout="wide")
 bridge_secrets_to_env()
@@ -69,26 +73,46 @@ run = st.button("검증 실행", type="primary", disabled=(payload is None or bo
 
 if run:
     pipeline = get_pipeline()
-    with st.status("파이프라인 실행 중… (진행 원본은 trace_event — Raw Trace 페이지에서 실시간 확인)",
-                   expanded=True) as status:
-        try:
-            job_id = pipeline.run_job(source_type, payload)
-            st.session_state["last_job_id"] = job_id
-            status.update(label="완료", state="complete")
-        except Exception as e:
-            status.update(label=f"실패: {e}", state="error")
-            st.stop()
+    # run_job_async는 job.created 1행만 INSERT하고 즉시 반환 — 실제 S0~S6은
+    # 백그라운드 스레드에서 계속 진행되므로, 이 페이지를 벗어나거나 새로고침해도
+    # job 자체는 끊기지 않는다 (예전엔 run_job()이 끝날 때까지 스크립트를 통째로
+    # 블로킹해서, 그 사이 페이지를 이동하면 Streamlit이 스크립트를 죽여 결과가
+    # 통째로 사라졌었다).
+    job_id = pipeline.run_job_async(source_type, payload)
+    st.session_state["last_job_id"] = job_id
+    st.query_params["job"] = job_id  # 새로고침/새 탭에서도 job_id 복원 가능하도록 URL에도 보관
+    st.rerun()
 
-job_id = st.session_state.get("last_job_id")
+# 세션이 살아있으면 session_state, 새로고침/새 탭이면 URL의 job 파라미터로 복원
+job_id = st.session_state.get("last_job_id") or st.query_params.get("job")
 if job_id:
     pipeline = get_pipeline()
     st.divider()
     st.subheader("판정 결과")
-    st.caption(f"job: `{job_id}` · 상태: `{pipeline.get_job_state(job_id)}` · "
+
+    events = pipeline.db.fetch_trace_events(job_id, after_seq=0)
+    terminal_seen = any(e["event_type"] in TERMINAL_EVENTS for e in events)
+    state = derive_state(events)
+    st.caption(f"job: `{job_id}` · 상태: `{state.value if state else '알 수 없음'}` · "
                f"Raw 스트림은 **Raw Trace** 페이지에서 확인")
+
+    if not terminal_seen:
+        st.info("⏳ 파이프라인이 백그라운드에서 처리 중입니다 — 이 탭을 벗어나거나 "
+                "새로고침해도 계속 진행되니 잠시 후 다시 확인해도 됩니다.")
+        time.sleep(settings.trace_poll_interval_seconds)
+        st.rerun()
+        st.stop()
+
+    failed = next((e for e in events if e["event_type"] == "job.failed"), None)
+    if failed:
+        payload_ = failed["payload"]
+        if isinstance(payload_, str):
+            payload_ = json.loads(payload_)
+        st.error(f"실패: {payload_.get('error', '알 수 없는 오류')}")
+
     verdicts = pipeline.db.fetch_verdicts(job_id)
-    if not verdicts:
-        st.info("판정 결과가 아직 없습니다.")
+    if not verdicts and not failed:
+        st.info("판정 결과가 아직 없습니다 (검증 대상 클레임이 없었을 수 있습니다).")
     for v in verdicts:
         label, _ = VERDICT_BADGE.get(v["verdict_code"], (v["verdict_code"], "gray"))
         with st.container(border=True):

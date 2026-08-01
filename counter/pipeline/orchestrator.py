@@ -12,6 +12,7 @@ job_id == ad_id: 한 job은 광고 입력 1건의 처리다 (DB_SCHEMA.md ad 테
 """
 from __future__ import annotations
 
+import threading
 import time
 from typing import Literal
 
@@ -44,17 +45,50 @@ class Pipeline:
     # ---- 계약 함수 1: run_job ----
 
     def run_job(self, source_type: Literal["IMAGE", "URL", "TEXT"], payload) -> str:
-        """S0~S6 전체 실행 후 job_id(=ad_id) 반환. 매 단계 trace_event INSERT.
-        사람 개입 지점은 없다 (PRD N2 — 입력 1회 → 출력까지 독립 수행)."""
+        """S0~S6 전체를 동기 실행 후 job_id(=ad_id) 반환 (테스트/스크립트용).
+        UI에서는 스크립트 재실행/페이지 이동에도 job이 끊기지 않도록
+        run_job_async를 쓴다 — 실제 처리 로직은 _run_job_body에 공유."""
         job_id = new_id()
         emitter = TraceEmitter(self.db, job_id)
+        emitter.emit("job.created", {"source_type": source_type})
+        self._run_job_body(job_id, source_type, payload, emitter)
+        return job_id
+
+    def run_job_async(self, source_type: Literal["IMAGE", "URL", "TEXT"], payload) -> str:
+        """job_id를 즉시 반환(빠른 INSERT 1회)하고, 나머지 S0~S6은 백그라운드
+        스레드에서 계속 진행한다. Streamlit은 사용자가 다른 페이지로 이동하거나
+        새로고침하면 현재 실행 중이던 스크립트를 그 자리에서 죽이는데, 그 경우에도
+        이 데몬 스레드는 (Streamlit 스크립트 컨텍스트와 무관한 순수 파이썬 스레드라)
+        살아남아 끝까지 진행되고 trace_event/verdict를 DB에 남긴다.
+        스레드 전용 Db 커넥션을 새로 만들어 다른 세션이 쓰는 공유 캐시 커넥션과
+        동시에 같은 psycopg2 connection을 건드리는 경합을 피한다."""
+        job_id = new_id()
+        worker_db = Db(self.settings)
+        emitter = TraceEmitter(worker_db, job_id)
+        emitter.emit("job.created", {"source_type": source_type})
+        worker = Pipeline(settings=self.settings, oai=self.oai, liner=self.liner, db=worker_db)
+
+        def _run() -> None:
+            try:
+                worker._run_job_body(job_id, source_type, payload, emitter)
+            except Exception:
+                pass  # _run_job_body가 이미 job.failed를 기록하고 재raise — 스레드 종단에서는 흡수
+            finally:
+                worker_db.close()
+
+        threading.Thread(target=_run, name=f"job-{job_id[:8]}", daemon=True).start()
+        return job_id
+
+    def _run_job_body(self, job_id: str, source_type: Literal["IMAGE", "URL", "TEXT"],
+                      payload, emitter: TraceEmitter) -> None:
+        """run_job / run_job_async가 공유하는 실제 S0~S6 처리 로직.
+        사람 개입 지점은 없다 (PRD N2 — 입력 1회 → 출력까지 독립 수행)."""
         sm = StateMachine(JobState.INTAKE)
         started = time.monotonic()
 
         def deadline_exceeded() -> bool:
             return time.monotonic() - started > self.settings.job_timeout_seconds
 
-        emitter.emit("job.created", {"source_type": source_type})
         try:
             # S0 — 범주어 없이는 반례 쿼리를 만들 수 없으므로 항상 최우선
             intake = run_intake(source_type, payload, self.oai, self.settings, emitter)
@@ -99,7 +133,7 @@ class Pipeline:
                 sm.transition(JobState.COMPLETE)
                 emitter.emit("job.completed", {"reason": "no falsifiable claims",
                                                "search_tool_calls": 0})
-                return job_id
+                return
 
             sm.transition(JobState.CLASSIFYING)
             # 상태 그래프(ARCHITECTURE §2)는 클레임 1건의 생애를 기술하므로,
@@ -113,7 +147,7 @@ class Pipeline:
 
             terminal = "job.degraded" if degraded_any else "job.completed"
             emitter.emit(terminal, {"claims_processed": len(claims)})
-            return job_id
+            return
 
         except Exception as e:
             if not emitter.terminated:

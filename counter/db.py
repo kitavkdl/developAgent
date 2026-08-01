@@ -49,6 +49,12 @@ class Db:
         self._conn.autocommit = True
         return self._conn
 
+    def close(self) -> None:
+        """스레드 전용 커넥션(백그라운드 job worker) 정리용. 공유 캐시 인스턴스에는
+        호출하지 말 것 — 다른 세션이 계속 쓰고 있을 수 있다."""
+        if self._conn is not None and not self._conn.closed:
+            self._conn.close()
+
     @contextmanager
     def cursor(self):
         # @contextmanager 제너레이터는 정확히 한 번만 yield해야 하므로

@@ -67,6 +67,10 @@ class FakeDb:
                 "target_entity": False, "geography": False}},
         }
 
+    def close(self) -> None:
+        """실제 Db.close()와 인터페이스 대칭 — run_job_async의 스레드 정리 경로가
+        FakeDb 주입 시에도 그대로 동작하도록."""
+
     # trace
     def insert_trace_event(self, job_id, seq, event_type, provider, payload):
         for ev in self.trace_events:
