@@ -22,7 +22,7 @@ export function SearchBar({
 
   return (
     <form
-      className={`search-bar ${compact ? "search-bar--compact" : ""}`}
+      className={`search-bar search-bar--claim-morph ${compact ? "search-bar--compact" : ""}`}
       onSubmit={handleSubmit}
     >
       <label className="sr-only" htmlFor="claim-query">

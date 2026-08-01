@@ -238,11 +238,20 @@ export function EvidenceGraph(props: {
   model: JobViewModel;
   selectedEntityId: string | null;
   onSelect: (id: string) => void;
+  claimMorphing?: boolean;
 }) {
+  const { claimMorphing = false, ...canvasProps } = props;
+
   return (
-    <div className="evidence-graph">
+    <div
+      className={`evidence-graph ${
+        claimMorphing
+          ? "is-claim-morphing"
+          : "is-claim-transition-source"
+      }`}
+    >
       <ReactFlowProvider>
-        <GraphCanvas {...props} />
+        <GraphCanvas {...canvasProps} />
       </ReactFlowProvider>
     </div>
   );

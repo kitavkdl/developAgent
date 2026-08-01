@@ -1,10 +1,11 @@
 "use client";
 
+import { useCallback, useState } from "react";
+import { flushSync } from "react-dom";
 import { AgentTracePanel } from "@/components/AgentTracePanel";
 import { CacheStateBadge } from "@/components/CacheStateBadge";
 import { DetailDrawer } from "@/components/DetailDrawer";
 import { EvidenceGraph } from "@/components/EvidenceGraph";
-import { PlaybackSpeedControl } from "@/components/PlaybackSpeedControl";
 import { ScenarioSwitcher } from "@/components/ScenarioSwitcher";
 import { SchemaTablePanel } from "@/components/SchemaTablePanel";
 import { SearchBar } from "@/components/SearchBar";
@@ -12,21 +13,81 @@ import { VerdictAnswerPanel } from "@/components/VerdictAnswerPanel";
 import { isActiveStage } from "@/lib/graph-mapper";
 import { useDemoOrchestrator } from "@/lib/use-demo-orchestrator";
 
+function runClaimViewTransition(update: () => void, onFinished?: () => void) {
+  const scrollPosition = { x: window.scrollX, y: window.scrollY };
+  const restoreScroll = () => {
+    window.scrollTo(scrollPosition.x, scrollPosition.y);
+  };
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  if (
+    reducedMotion ||
+    typeof document.startViewTransition !== "function"
+  ) {
+    flushSync(update);
+    onFinished?.();
+    restoreScroll();
+    return;
+  }
+
+  document.documentElement.dataset.claimTransition = "active";
+
+  try {
+    const transition = document.startViewTransition(() => {
+      flushSync(update);
+      restoreScroll();
+    });
+
+    void transition.finished
+      .finally(() => {
+        delete document.documentElement.dataset.claimTransition;
+        onFinished?.();
+        requestAnimationFrame(restoreScroll);
+      })
+      .catch(() => undefined);
+  } catch {
+    delete document.documentElement.dataset.claimTransition;
+    flushSync(update);
+    onFinished?.();
+    restoreScroll();
+  }
+}
+
 export function DemoShell() {
   const {
     model,
     scenario,
     setScenario,
-    playbackSpeed,
-    setPlaybackSpeed,
     selectedEntityId,
     setSelectedEntityId,
     submit,
     reset,
   } = useDemoOrchestrator();
+  const [claimMorphQuery, setClaimMorphQuery] = useState<string | null>(null);
 
   const active = isActiveStage(model.status);
-  const busy = model.status === "submitting" || model.status === "streaming";
+
+  const handleSubmit = useCallback(
+    (query: string) => {
+      const trimmed = query.trim();
+      if (!trimmed) return;
+
+      runClaimViewTransition(
+        () => {
+          setClaimMorphQuery(trimmed);
+          void submit(trimmed);
+        },
+        () => setClaimMorphQuery(null),
+      );
+    },
+    [submit],
+  );
+
+  const handleReset = useCallback(() => {
+    runClaimViewTransition(reset);
+  }, [reset]);
 
   return (
     <div className={`demo-shell ${active ? "demo-shell--active" : ""}`}>
@@ -38,7 +99,7 @@ export function DemoShell() {
             <button
               type="button"
               className="hero__brand"
-              onClick={reset}
+              onClick={handleReset}
               disabled={!active}
               aria-label={active ? "Reset research workspace" : undefined}
             >
@@ -54,18 +115,9 @@ export function DemoShell() {
                 memory for now.
               </p>
             </div>
-            <SearchBar
-              compact={active}
-              busy={busy}
-              initialQuery={model.query}
-              onSubmit={submit}
-            />
+            {!active ? <SearchBar onSubmit={handleSubmit} /> : null}
             <div className="hero__controls">
               <ScenarioSwitcher value={scenario} onChange={setScenario} />
-              <PlaybackSpeedControl
-                value={playbackSpeed}
-                onChange={setPlaybackSpeed}
-              />
             </div>
           </div>
         </section>
@@ -108,10 +160,22 @@ export function DemoShell() {
 
             <div className="stage__main">
               <div className="stage__graph-wrap">
+                {claimMorphQuery ? (
+                  <div
+                    className="claim-morph-target graph-node kind-Claim"
+                    aria-hidden="true"
+                  >
+                    <span className="graph-node__kind">Claim</span>
+                    <strong>Claim</strong>
+                    <p>{claimMorphQuery}</p>
+                  </div>
+                ) : null}
                 <EvidenceGraph
+                  key={active ? "active" : "idle"}
                   model={model}
                   selectedEntityId={selectedEntityId}
                   onSelect={setSelectedEntityId}
+                  claimMorphing={Boolean(claimMorphQuery)}
                 />
               </div>
               <div className="stage__side">

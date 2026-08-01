@@ -113,12 +113,15 @@ morph를 사용한다.
 
 1. submit handler가 `document.startViewTransition()` 안에서 job을 `submitting`으로
    전환한다.
-2. SearchBar의 이전 snapshot과 optimistic Claim 노드의 새 snapshot이 동일한
-   `view-transition-name`을 공유한다.
-3. optimistic node는 더미 계약의 안정 ID `claim-1`과 입력 query를 사용한다.
-4. 이후 `claim.extracted` fixture가 같은 `claim-1`을 갱신하므로 노드를 교체하거나
-   다시 등장시키지 않는다.
-5. reset에서는 같은 shared element가 Claim 노드에서 SearchBar로 역변환한다.
+2. SearchBar의 이전 snapshot과 그래프 중앙의 `ClaimMorphTarget` proxy가 동일한
+   `view-transition-name`을 공유한다. proxy를 쓰는 이유는 React Flow의 첫 측정
+   좌표가 0폭 workspace를 기준으로 잡히는 경쟁 조건을 피하기 위해서다.
+3. 동시에 실제 optimistic node는 더미 계약의 안정 ID `claim-1`과 입력 query를
+   사용해 proxy 아래에 렌더링된다.
+4. morph 완료 시 proxy만 제거하고 실제 `claim-1`을 노출한다. 이후
+   `claim.extracted` fixture가 같은 ID를 갱신하므로 노드를 교체하지 않는다.
+5. reset에서는 실제 Claim 노드와 SearchBar가 shared name을 이어받아 역변환한다.
+6. 모바일에서는 scroll anchoring을 잠시 끄고 시작 scroll 위치를 복원한다.
 
 View Transition API 미지원 브라우저에서는 같은 상태 변경을 즉시 수행한다.
 `prefers-reduced-motion`에서는 shared-element 이동을 생략하고 짧은 opacity
@@ -291,7 +294,7 @@ graph growth / delta refresh.
 
 - COUNTER 이벤트 이름으로 더미 재생된다
 - idle과 running 사이에 컴포넌트 교체나 페이지 이동 없이 패널이 전환된다
-- SearchBar box가 optimistic Claim node로 morph하고 실제 `claim.extracted`가 이어받는다
+- SearchBar box가 Claim proxy로 morph하고 실제 optimistic node와 `claim.extracted`가 이어받는다
 - 활성 데스크톱 화면은 35:65, 좁은 화면은 1열로 동작한다
 - 그래프·테이블에 Claim·Search·Candidate·Verdict가 쌓인다
 - `miss` + `puffery` + (`hit` 또는 `delta`) 재현

@@ -102,7 +102,15 @@ export function mapJobToGraph(
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   const deltaDecision = model.cacheDecision === "DELTA";
-  const claim = model.tables.claims[0];
+  const claim =
+    model.tables.claims[0] ??
+    (model.status !== "idle" && model.query
+      ? {
+          id: "claim-1",
+          text: model.query,
+          created_at: "",
+        }
+      : undefined);
   const runCount = model.tables.search_runs.length;
   const sourceCount = Math.max(model.tables.sources.length, 1);
   const candidateCount = Math.max(model.tables.candidates.length, 1);

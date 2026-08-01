@@ -257,6 +257,52 @@ body {
   width: min(100%, 40rem);
 }
 
+.search-bar--claim-morph {
+  view-transition-name: claim-search-box;
+}
+
+::view-transition-group(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-old(root) {
+  display: none;
+}
+
+html[data-claim-transition="active"] .demo-atmosphere,
+html[data-claim-transition="active"] .workspace-shell,
+html[data-claim-transition="active"] .input-pane,
+html[data-claim-transition="active"] .input-pane__intro,
+html[data-claim-transition="active"] .hero__brand,
+html[data-claim-transition="active"] .workspace-pane {
+  transition: none !important;
+}
+
+html[data-claim-transition="active"] {
+  overflow-anchor: none;
+}
+
+::view-transition-group(claim-search-box) {
+  z-index: 40;
+  animation-duration: 900ms;
+  animation-timing-function: var(--ease-stage);
+}
+
+::view-transition-image-pair(claim-search-box) {
+  isolation: auto;
+}
+
+::view-transition-old(claim-search-box) {
+  animation: 900ms var(--ease-stage) both claim-morph-out;
+  mix-blend-mode: normal;
+}
+
+::view-transition-new(claim-search-box) {
+  animation: 900ms var(--ease-stage) both claim-morph-in;
+  mix-blend-mode: normal;
+}
+
 .search-bar input {
   flex: 1;
   border: 1px solid var(--line);
@@ -493,6 +539,7 @@ body {
 }
 
 .stage__graph-wrap {
+  position: relative;
   border: 1px solid var(--line-bright);
   border-radius: 1rem;
   overflow: hidden;
@@ -500,6 +547,25 @@ body {
     linear-gradient(180deg, rgba(22, 48, 42, 0.9), rgba(13, 28, 25, 0.95));
   min-height: 420px;
   animation: graph-growth 0.7s var(--ease-stage) both;
+}
+
+.claim-morph-target {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  width: 200px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  view-transition-name: claim-search-box;
+}
+
+.evidence-graph.is-claim-morphing .graph-node.kind-Claim {
+  opacity: 0;
+}
+
+.evidence-graph.is-claim-transition-source .graph-node.kind-Claim {
+  view-transition-name: claim-search-box;
 }
 
 .evidence-graph {
@@ -845,6 +911,12 @@ body {
   animation: node-enter 0.32s var(--ease-stage) both;
 }
 
+html[data-claim-transition="active"]
+  .react-flow__node.is-entering
+  .graph-node.kind-Claim {
+  animation: none;
+}
+
 .react-flow__edge.is-drawing .growth-edge-path {
   stroke-dasharray: 6 4;
   animation: edge-draw 0.45s var(--ease-stage) both;
@@ -1021,6 +1093,32 @@ body {
   }
 }
 
+@keyframes claim-morph-out {
+  0%,
+  35% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+
+@keyframes claim-morph-in {
+  0%,
+  25% {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  65%,
+  100% {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
 @keyframes graph-growth {
   from {
     opacity: 0;
@@ -1137,6 +1235,13 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(claim-search-box),
+  ::view-transition-old(claim-search-box),
+  ::view-transition-new(claim-search-box) {
+    animation-duration: 1ms !important;
+    animation-delay: 0s !important;
+  }
+
   .workspace-shell,
   .input-pane,
   .input-pane__intro,
