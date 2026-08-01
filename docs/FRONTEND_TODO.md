@@ -48,6 +48,18 @@
 - [x] `prefers-reduced-motion`에서 위치·크기 모션 제거
 - [x] `npm run lint`와 `npm run build` 통과
 
+## P2.2 — Experimental SearchBox → Claim node
+
+- [ ] submit/reset을 native View Transition으로 감싸고 미지원 fallback 제공
+- [ ] SearchBar와 첫 Claim node에 동일한 shared-element 이름 부여
+- [ ] submit 직후 `model.query` 기반 optimistic `claim-1` node 렌더링
+- [ ] 실제 `claim.extracted`가 optimistic node ID를 그대로 이어받음
+- [ ] active 상태에서 SearchBar 제거, reset 시 역방향 morph
+- [ ] playback control 제거 및 `PLAYBACK_STEP_MS.slow` 고정
+- [ ] reduced-motion에서 이동·크기 morph 제거
+- [ ] 데스크톱·모바일 실제 브라우저 렌더링 확인
+- [ ] `npm run lint`, TypeScript, `npm run build` 통과
+
 ## P3 — 이후 (제출 / 실연동 — 이 단계 비범위)
 
 - [ ] Streamlit 입력·결과·세컨드 raw poll·통계 페이지
@@ -63,3 +75,4 @@
 - [x] 그래프에 Claim→…→Candidate→Verdict 연결 성장이 보인다
 - [x] D-02 / D-03 / N4 카피 가드 위반 없음
 - [x] 입력 후 새 페이지처럼 교체되지 않고 같은 셸에서 결과 패널이 열린다
+- [ ] 검색창 box가 그래프 Claim node로 직접 transform된다

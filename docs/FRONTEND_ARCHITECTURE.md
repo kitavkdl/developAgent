@@ -59,7 +59,8 @@
 ### 3.1 Idle
 
 브랜드(COUNTER / Evidence) + 한 줄 헤드라인 + claim 입력 + Research CTA가
-가운데에 놓인다. 시나리오·재생 속도는 리허설 컨트롤이다.
+가운데에 놓인다. 시나리오는 리허설 컨트롤이며, 이벤트 재생 속도는 `slow`로
+고정한다.
 
 결과 영역은 별도 페이지가 아니라 같은 셸 안에 존재하되, `idle`에서는
 시각적으로 접혀 있고 포커스·스크린리더 탐색 대상에서 제외한다.
@@ -101,7 +102,28 @@ flowchart LR
 - 좁은 화면: 입력 패널 위, 결과 패널 아래의 1열 구조
 - 접힌 결과 영역: `aria-hidden`과 `inert`로 상호작용 차단
 - `prefers-reduced-motion`: 컬럼 이동·슬라이드 없이 짧은 opacity 전환만 사용
-- 입력 중 상태가 바뀌어도 동일한 SearchBar 인스턴스를 유지해 값과 포커스를 보존
+- 기본 `frontend` 브랜치는 동일한 SearchBar 인스턴스를 유지한다. 아래 실험
+  브랜치는 shared-element handoff를 위해 active 전환 시 SearchBar를 unmount한다.
+
+### 3.4 Experimental: SearchBox → Claim node
+
+`frontend-experimental` 브랜치에서는 제출 순간 SearchBar가 사라지고 동일한
+시각 객체가 EvidenceGraph의 첫 Claim 노드로 이동·축소되는 shared-element
+morph를 사용한다.
+
+1. submit handler가 `document.startViewTransition()` 안에서 job을 `submitting`으로
+   전환한다.
+2. SearchBar의 이전 snapshot과 optimistic Claim 노드의 새 snapshot이 동일한
+   `view-transition-name`을 공유한다.
+3. optimistic node는 더미 계약의 안정 ID `claim-1`과 입력 query를 사용한다.
+4. 이후 `claim.extracted` fixture가 같은 `claim-1`을 갱신하므로 노드를 교체하거나
+   다시 등장시키지 않는다.
+5. reset에서는 같은 shared element가 Claim 노드에서 SearchBar로 역변환한다.
+
+View Transition API 미지원 브라우저에서는 같은 상태 변경을 즉시 수행한다.
+`prefers-reduced-motion`에서는 shared-element 이동을 생략하고 짧은 opacity
+전환만 허용한다. 이 기능은 더미 Next.js 프로토타입 전용이며 Streamlit 제출
+계약을 변경하지 않는다.
 
 ---
 
@@ -252,8 +274,10 @@ interface CandidateView {
 
 ## 9. 모션
 
-의도적 모션 4개: workspace split / stage reveal / graph growth / delta refresh.
+의도적 모션 5개: search-to-claim morph / workspace split / stage reveal /
+graph growth / delta refresh.
 
+- search-to-claim morph: SearchBar box가 graph의 첫 Claim node로 이동·축소된다.
 - workspace split: 입력 패널이 중앙 전체 폭에서 왼쪽 35%로 축소되고 결과 패널이
   오른쪽에서 드러난다. 상태 변화는 한 번만 일어나며 이벤트마다 레이아웃을
   재시작하지 않는다.
@@ -267,6 +291,7 @@ interface CandidateView {
 
 - COUNTER 이벤트 이름으로 더미 재생된다
 - idle과 running 사이에 컴포넌트 교체나 페이지 이동 없이 패널이 전환된다
+- SearchBar box가 optimistic Claim node로 morph하고 실제 `claim.extracted`가 이어받는다
 - 활성 데스크톱 화면은 35:65, 좁은 화면은 1열로 동작한다
 - 그래프·테이블에 Claim·Search·Candidate·Verdict가 쌓인다
 - `miss` + `puffery` + (`hit` 또는 `delta`) 재현
