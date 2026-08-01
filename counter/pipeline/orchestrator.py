@@ -254,7 +254,7 @@ class Pipeline:
         sm.transition(JobState.RESEARCHING)
         _hypotheses, queries = run_hypothesis(
             claim, route, claim_type_row, self.oai, s, emitter, subject=subject,
-            delta_mode=delta_mode, date_from=date_from,
+            category=category, delta_mode=delta_mode, date_from=date_from,
         )
         outcome = run_search_and_evaluate(
             claim=claim, claim_id=claim_id, route=route, queries=queries,

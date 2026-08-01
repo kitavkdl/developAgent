@@ -125,6 +125,7 @@ def _do_search(*, q, mode, search_tool, search_mode, date_from, claim_id,
     # 감싸서 INSERT (ARCHITECTURE §6). payload는 가공 금지, 키만 마스킹.
     emitter.emit("tool.call", {
         "tool": search_tool, "mode": mode, "search_mode": search_mode,
+        "hypothesis_type": q.get("hypothesis_type"),  # H1/H2/H3 태그 (있는 경우) — Raw Trace 가시성용
         "request": {"query": query_text, "date_from": date_from},
     }, provider="liner")
     t0 = time.monotonic()

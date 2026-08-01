@@ -80,6 +80,26 @@ HYPOTHESIS_SCHEMA = _obj({
     },
 })
 
+# SELF_REPORTED_PRIVATE_METRIC 전용 — 가설마다 유형(H1/H2/H3)을 명시적으로
+# 태그하게 해 표현만 다른 동일 가설의 반복을 코드로 구분할 수 있게 한다
+# (구축 요청 [B]: 가설 다양성 강제).
+HYPOTHESIS_TYPE_ENUM = ["SELF_CONTRADICTION", "CEILING", "DEFINITION_COLLAPSE"]
+
+HYPOTHESIS_TYPED_SCHEMA = _obj({
+    "hypotheses": {
+        "type": "array",
+        "items": _obj({
+            "hypothesis_type": {"type": "string", "enum": HYPOTHESIS_TYPE_ENUM},
+            "hypothesis": _str,
+            "what_must_exist": _str,
+            "queries": {
+                "type": "array",
+                "items": _obj({"query_text": _str, "language": _str}),
+            },
+        }),
+    },
+})
+
 EVALUATOR_SCHEMA = _obj({
     "scope_match": _bool,
     "metric_match": _bool,
