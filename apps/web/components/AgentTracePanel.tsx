@@ -18,8 +18,25 @@ export function AgentTracePanel({
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    const active = el.querySelector("li.is-active");
-    active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const active = el.querySelector<HTMLElement>("li.is-active");
+    if (!active) return;
+
+    const listRect = el.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    let scrollDelta = 0;
+
+    if (activeRect.top < listRect.top) {
+      scrollDelta = activeRect.top - listRect.top;
+    } else if (activeRect.bottom > listRect.bottom) {
+      scrollDelta = activeRect.bottom - listRect.bottom;
+    }
+
+    if (scrollDelta !== 0) {
+      el.scrollTo({
+        top: el.scrollTop + scrollDelta,
+        behavior: "smooth",
+      });
+    }
   }, [activeTraceId, traces.length]);
 
   return (
