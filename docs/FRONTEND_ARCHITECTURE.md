@@ -1,6 +1,6 @@
 # COUNTER — Frontend Architecture (Dummy Evidence Memory)
 
-- 상태: 현 단계 SoT 정렬 (더미 시각화)
+- 상태: 현 단계 SoT 정렬 (더미 시각화 + 단일 페이지 전환)
 - 날짜: 2026-08-01
 - 제품 SoT: [`PRD.md`](./PRD.md) · [`ARCHITECTURE.md`](./ARCHITECTURE.md) · [`DECISIONS.md`](./DECISIONS.md)
 - 제출 UI SoT: Streamlit (`DECISIONS.md` D-14). **이 문서의 Next.js `apps/web`은 제출물이 아니다.**
@@ -58,25 +58,50 @@
 
 ### 3.1 Idle
 
-브랜드(COUNTER / Evidence) + 한 줄 헤드라인 + claim 입력 + Research CTA.  
-시나리오·재생 속도는 리허설 컨트롤.
+브랜드(COUNTER / Evidence) + 한 줄 헤드라인 + claim 입력 + Research CTA가
+가운데에 놓인다. 시나리오·재생 속도는 리허설 컨트롤이다.
+
+결과 영역은 별도 페이지가 아니라 같은 셸 안에 존재하되, `idle`에서는
+시각적으로 접혀 있고 포커스·스크린리더 탐색 대상에서 제외한다.
 
 ### 3.2 Running / Complete
 
-상단 축소 검색바 + 캐시 배지 + 상태.  
-메인: **EvidenceGraph**(파이프라인 memory).  
-우측: AgentTrace + VerdictPanel.  
-하단: SchemaTable. 선택 시 DetailDrawer.
+기존 입력 패널이 교체되지 않고 화면 왼쪽 35%로 축소된다. 오른쪽 65%에는
+캐시 배지·상태, **EvidenceGraph**, AgentTrace, VerdictPanel, SchemaTable이
+나타난다. 선택 시 DetailDrawer가 열린다.
+
+`idle → submitting → streaming → complete` 전환은 라우트 이동이나
+`hero`/`stage` 조건부 교체가 아니라, 동일한 DOM 셸의 CSS Grid 컬럼과 opacity를
+변경해서 표현한다. 따라서 입력값과 포커스 맥락이 유지되고 화면 전체가 새로
+열리는 인상을 주지 않는다.
+
+```text
+Idle                         Running / Complete
+┌───────────────────────┐    ┌──────────┬────────────────────────┐
+│                       │    │ Input    │ Pipeline workspace     │
+│    Input workspace    │ →  │ 35%      │ 65%                    │
+│                       │    │          │ graph · trace · result │
+└───────────────────────┘    └──────────┴────────────────────────┘
+```
 
 ```mermaid
 flowchart LR
   Search["SearchBar"] --> Orch["DemoOrchestrator"]
-  Orch --> Graph["EvidenceGraph"]
-  Orch --> Trace["AgentTracePanel"]
-  Orch --> Table["SchemaTablePanel"]
-  Orch --> Detail["DetailDrawer"]
-  Orch --> Verdict["VerdictAnswerPanel"]
+  Orch --> Shell["PersistentWorkspaceShell"]
+  Shell --> Graph["EvidenceGraph"]
+  Shell --> Trace["AgentTracePanel"]
+  Shell --> Table["SchemaTablePanel"]
+  Shell --> Detail["DetailDrawer"]
+  Shell --> Verdict["VerdictAnswerPanel"]
 ```
+
+### 3.3 반응형·접근성
+
+- 데스크톱: 활성 상태에서 입력 35% / 결과 65%의 2열 구조
+- 좁은 화면: 입력 패널 위, 결과 패널 아래의 1열 구조
+- 접힌 결과 영역: `aria-hidden`과 `inert`로 상호작용 차단
+- `prefers-reduced-motion`: 컬럼 이동·슬라이드 없이 짧은 opacity 전환만 사용
+- 입력 중 상태가 바뀌어도 동일한 SearchBar 인스턴스를 유지해 값과 포커스를 보존
 
 ---
 
@@ -227,14 +252,22 @@ interface CandidateView {
 
 ## 9. 모션
 
-의도적 모션 3개: stage reveal / graph growth / delta refresh.  
-`prefers-reduced-motion` 시 opacity만.
+의도적 모션 4개: workspace split / stage reveal / graph growth / delta refresh.
+
+- workspace split: 입력 패널이 중앙 전체 폭에서 왼쪽 35%로 축소되고 결과 패널이
+  오른쪽에서 드러난다. 상태 변화는 한 번만 일어나며 이벤트마다 레이아웃을
+  재시작하지 않는다.
+- stage reveal: 결과 셸이 나타난 뒤 내부 패널을 짧게 노출한다.
+- graph growth / delta refresh: 기존 이벤트 기반 모션을 유지한다.
+- `prefers-reduced-motion` 시 위치·크기 애니메이션을 제거하고 opacity만 사용한다.
 
 ---
 
 ## 10. 완료 기준 (현 단계)
 
 - COUNTER 이벤트 이름으로 더미 재생된다
+- idle과 running 사이에 컴포넌트 교체나 페이지 이동 없이 패널이 전환된다
+- 활성 데스크톱 화면은 35:65, 좁은 화면은 1열로 동작한다
 - 그래프·테이블에 Claim·Search·Candidate·Verdict가 쌓인다
 - `miss` + `puffery` + (`hit` 또는 `delta`) 재현
 - `NOT_REFUTED` / `PUFFERY` 카피가 D-03·N4를 지킨다
