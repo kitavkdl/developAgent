@@ -497,15 +497,11 @@ button.dbPage:focus-visible,
 }
 
 .leafChain {
-  --leaf-slot-count: 15;
-  --leaf-gap: 0.55rem;
   display: flex;
   align-items: stretch;
-  gap: var(--leaf-gap);
   width: min(100%, 86rem);
   margin-inline: auto;
   padding-block: 0.6rem;
-  min-width: 0;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
   scroll-snap-type: inline mandatory;
@@ -516,15 +512,15 @@ button.dbPage:focus-visible,
 .leafChain > li {
   --delay: calc(var(--node-index) * 100ms);
   position: relative;
-  flex: 0 0 max(
-    5.4rem,
-    calc(
-      (100% - (var(--leaf-slot-count) - 1) * var(--leaf-gap)) /
-        var(--leaf-slot-count)
-    )
-  );
+  flex: 1 0 0;
+  min-width: 13.5rem;
+  padding-right: 1.8rem;
   scroll-snap-align: center;
   animation: page-descend 0.72s var(--delay) var(--ease-stage) both;
+}
+
+.leafChain > li:last-child {
+  padding-right: 0;
 }
 
 .leafChain > li:not(:last-child)::before {
@@ -532,7 +528,7 @@ button.dbPage:focus-visible,
   position: absolute;
   z-index: 1;
   top: 50%;
-  right: calc(var(--leaf-gap) * -1);
+  right: 0.3rem;
   width: 1.2rem;
   height: 1px;
   background: #557565;
@@ -543,7 +539,7 @@ button.dbPage:focus-visible,
   position: absolute;
   z-index: 2;
   top: calc(50% - 0.46rem);
-  right: calc(var(--leaf-gap) * -1 - 0.15rem);
+  right: 0.15rem;
   color: #6e9481;
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -552,31 +548,23 @@ button.dbPage:focus-visible,
 .leafPage {
   display: grid;
   gap: 0.65rem;
-  aspect-ratio: 1;
-  min-height: 0;
-  min-width: 0;
-  height: auto;
-  overflow: hidden;
-  padding: 0.62rem;
+  height: 100%;
+  min-height: 10.6rem;
+  padding: 0.85rem;
 }
 
 .leafPage > strong {
   align-self: center;
-  overflow: hidden;
-  font-size: 0.7rem;
+  font-size: 0.85rem;
   line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .leafPage > code,
 .leafPage > small {
-  overflow: hidden;
   color: #72887c;
   font-family: var(--font-mono);
-  font-size: 0.43rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.52rem;
+  overflow-wrap: anywhere;
 }
 
 .leafPage > small {
@@ -977,6 +965,10 @@ button.dbPage:focus-visible,
     width: calc(100% + 1rem);
     margin-right: -1rem;
     padding-right: 1rem;
+  }
+
+  .leafChain > li {
+    flex-basis: min(76vw, 16rem);
   }
 
   .payloadGrid {
