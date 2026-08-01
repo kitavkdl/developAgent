@@ -71,6 +71,20 @@
 - [x] 좁은 화면과 reduced-motion에서 읽기 순서·전환 보장
 - [x] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
 
+## P2.4 — Automatic Category Memory B+ Tree Demo
+
+- [x] `/database` 독립 route 진입 즉시 category explorer 렌더
+- [x] 원격 main seed의 13개 업종 + `UNCATEGORIZED`를 stable node로 표현
+- [x] root/internal/linked leaf page를 갖는 B+ tree형 PK index projection 구성
+- [x] 진입 후 뷰티 → 앰플 고정 경로를 slow 속도로 자동 탐색
+- [x] category leaf hit 후 실제 centroid phrase와 keyword level을 아래로 펼침
+- [x] 방문·현재 probe·leaf hit 및 child/sibling pointer를 시각적으로 구분
+- [x] 사용자 node 선택 시 자동 탐색 중단, Pause/Resume·Replay 제공
+- [x] B+ tree UI가 IVFFlat 물리 구조나 FK hierarchy가 아님을 명시
+- [x] 각 sub level에 동일 크기의 frontend-only demo node 15개와 가로 스크롤 제공
+- [x] 모바일·키보드 탐색과 `prefers-reduced-motion` fallback 제공
+- [x] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
+
 ## P3 — 이후 (제출 / 실연동 — 이 단계 비범위)
 
 - [ ] Streamlit 입력·결과·세컨드 raw poll·통계 페이지
