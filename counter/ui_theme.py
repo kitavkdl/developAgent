@@ -185,6 +185,12 @@ h1, h2, h3 {{
   background: rgba(196, 120, 43, 0.08);
 }}
 
+.ctr-trace:target {{
+  border-color: {ACCENT_BRIGHT};
+  background: rgba(196, 120, 43, 0.16);
+  scroll-margin-top: 5rem;
+}}
+
 .ctr-trace-meta {{
   display: flex;
   align-items: center;
@@ -195,6 +201,77 @@ h1, h2, h3 {{
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: {INK_DIM};
+}}
+
+/* ---- snake roadmap (파이프라인 처리 순서 — 노드 클릭 시 상세로 앵커 스크롤) ---- */
+.ctr-snake {{
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  margin: 0.7rem 0 1.2rem;
+  overflow-x: auto;
+  padding-bottom: 0.3rem;
+}}
+
+.ctr-snake-row {{
+  display: flex;
+  align-items: center;
+}}
+
+.ctr-snake-row.is-reverse {{
+  flex-direction: row-reverse;
+}}
+
+.ctr-snake-node {{
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  color: #f4efe4 !important;
+  text-decoration: none !important;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  transition: transform 0.15s ease, filter 0.15s ease;
+  z-index: 1;
+  background: color-mix(in srgb, var(--node-color) 26%, #12241f);
+  border: 1px solid color-mix(in srgb, var(--node-color) 55%, transparent);
+}}
+
+.ctr-snake-node.dir-right {{
+  clip-path: polygon(0% 0%, 85% 0%, 100% 50%, 85% 100%, 0% 100%, 14% 50%);
+  padding: 0.5rem 1.2rem 0.5rem 1.6rem;
+  margin-right: -0.85rem;
+}}
+.ctr-snake-row:not(.is-reverse) .ctr-snake-node.dir-right:first-child {{
+  clip-path: polygon(0% 0%, 85% 0%, 100% 50%, 85% 100%, 0% 100%);
+  padding-left: 1.1rem;
+}}
+
+.ctr-snake-node.dir-left {{
+  clip-path: polygon(100% 0%, 15% 0%, 0% 50%, 15% 100%, 100% 100%, 86% 50%);
+  padding: 0.5rem 1.6rem 0.5rem 1.2rem;
+  margin-right: -0.85rem;
+}}
+.ctr-snake-row.is-reverse .ctr-snake-node.dir-left:first-child {{
+  clip-path: polygon(100% 0%, 15% 0%, 0% 50%, 15% 100%, 100% 100%);
+  padding-right: 1.1rem;
+}}
+
+.ctr-snake-node:hover {{
+  filter: brightness(1.3);
+  transform: translateY(-3px);
+  z-index: 2;
+}}
+
+.ctr-snake-num {{
+  opacity: 0.6;
+}}
+
+.ctr-snake-label {{
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }}
 
 /* ---- native widget restyle ---- */
@@ -317,6 +394,50 @@ def plain_chip(label: str, color: str = INK_DIM) -> str:
         f'<span class="ctr-chip" style="color:{color};'
         f'background:{color}18;border-color:{color}45;">{label}</span>'
     )
+
+
+_EVENT_SHORT: dict[str, str] = {
+    "job.created": "JOB START",
+    "intake.completed": "INTAKE",
+    "claim.extracted": "CLAIM",
+    "claim.triaged": "TRIAGE",
+    "route.decided": "ROUTE",
+    "industry.classified": "INDUSTRY",
+    "cache.decision": "CACHE",
+    "tool.call": "CALL",
+    "tool.result": "RESULT",
+    "candidate.evaluated": "CANDIDATE",
+    "verdict.assembled": "VERDICT",
+    "job.completed": "DONE",
+    "job.degraded": "DEGRADED",
+    "job.failed": "FAILED",
+}
+
+
+def render_snake(events: list[dict], nodes_per_row: int = 7) -> str:
+    """이벤트 처리 순서를 지그재그(snake) 로드맵으로 렌더링. 각 노드는 해당
+    trace 카드(id=trace-{seq})로의 앵커 링크 — 클릭하면 상세로 스크롤된다."""
+    rows_html = []
+    for i in range(0, len(events), nodes_per_row):
+        chunk = events[i:i + nodes_per_row]
+        row_idx = i // nodes_per_row
+        reversed_row = bool(row_idx % 2)
+        direction = "dir-left" if reversed_row else "dir-right"
+        row_class = "ctr-snake-row is-reverse" if reversed_row else "ctr-snake-row"
+        nodes = []
+        for ev in chunk:
+            provider = ev.get("provider") or "app"
+            color = PROVIDER_COLORS.get(provider, INK_DIM)
+            label = _EVENT_SHORT.get(ev["event_type"], ev["event_type"])
+            nodes.append(
+                f'<a href="#trace-{ev["seq"]}" class="ctr-snake-node {direction}" '
+                f'style="--node-color:{color};" '
+                f'title="#{ev["seq"]:03d} · {ev["event_type"]} · {provider}">'
+                f'<span class="ctr-snake-num">{ev["seq"]:02d}</span>'
+                f'<span class="ctr-snake-label">{label}</span></a>'
+            )
+        rows_html.append(f'<div class="{row_class}">{"".join(nodes)}</div>')
+    return f'<div class="ctr-snake">{"".join(rows_html)}</div>'
 
 
 def kpi_row(items: list[tuple[str, object, str | None, str]]) -> None:
