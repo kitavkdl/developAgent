@@ -1,0 +1,19 @@
+# 시크릿 — 절대 커밋 금지 (리포가 public이라 커밋되는 순간 전세계 노출)
+.streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / 에디터
+.DS_Store
+.vscode/
+
+# 로컬 스크래치 (실측 로그, 임시 캡처 등)
+*.local.md
+/scratch/
