@@ -13,8 +13,9 @@ import {
   CATEGORY_REUSE_THRESHOLD_REFERENCE,
   DEMO_LOOKUP,
   categoryById,
-  pageForCategory,
   phraseKeywords,
+  type CategoryIndexPage,
+  type IndustryCategorySeed,
 } from "@/lib/category-memory";
 import styles from "@/app/database/database.module.css";
 
@@ -34,9 +35,28 @@ interface EdgeCanvas {
   edges: TreeEdge[];
 }
 
+interface FrontendDemoNode<T> {
+  nodeId: string;
+  slot: number;
+  source: T;
+}
+
 const DEMO_START_DELAY_MS = 700;
 const DEMO_STEP_MS = 1150;
+const FRONTEND_DEMO_NODE_COUNT = 15;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
+
+function createFrontendDemoNodes<T>(
+  levelId: string,
+  sources: readonly T[],
+): FrontendDemoNode<T>[] {
+  if (sources.length === 0) return [];
+  return Array.from({ length: FRONTEND_DEMO_NODE_COUNT }, (_, index) => ({
+    nodeId: `${levelId}-demo-${String(index + 1).padStart(2, "0")}`,
+    slot: index,
+    source: sources[index % sources.length],
+  }));
+}
 
 function cascadeStyle(index: number): CascadeStyle {
   return { "--node-index": index };
@@ -67,11 +87,23 @@ function ScanCursor({ label }: { label: string }) {
 export function CategoryMemoryBTree() {
   const [mode, setMode] = useState<ScanMode>("auto");
   const [demoStep, setDemoStep] = useState(0);
+  const [selectedPageNodeId, setSelectedPageNodeId] = useState<string | null>(
+    null,
+  );
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [selectedLeafNodeId, setSelectedLeafNodeId] = useState<string | null>(
+    null,
+  );
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     null,
   );
+  const [selectedPhraseNodeId, setSelectedPhraseNodeId] = useState<
+    string | null
+  >(null);
   const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
+  const [selectedKeywordNodeId, setSelectedKeywordNodeId] = useState<
+    string | null
+  >(null);
   const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
 
   const treeRef = useRef<HTMLElement>(null);
@@ -90,25 +122,52 @@ export function CategoryMemoryBTree() {
       null,
     [selectedPageId],
   );
+  const pageNodes = useMemo(
+    () => createFrontendDemoNodes("internal", CATEGORY_INDEX_PAGES),
+    [],
+  );
+  const leafNodes = useMemo(() => {
+    if (!selectedPage) return [];
+    const categories = selectedPage.categoryIds
+      .map((categoryId) => categoryById(categoryId))
+      .filter((category): category is IndustryCategorySeed => Boolean(category));
+    return createFrontendDemoNodes(
+      `leaf-${selectedPage.pageId}`,
+      categories,
+    );
+  }, [selectedPage]);
   const selectedCategory = useMemo(
     () => (selectedCategoryId ? categoryById(selectedCategoryId) : undefined),
     [selectedCategoryId],
   );
-  const keywords = useMemo(
-    () => (selectedPhrase ? phraseKeywords(selectedPhrase) : []),
+  const phraseNodes = useMemo(
+    () =>
+      selectedCategory
+        ? createFrontendDemoNodes(
+            `payload-${selectedCategory.categoryId}`,
+            selectedCategory.centroidPhrases,
+          )
+        : [],
+    [selectedCategory],
+  );
+  const tokenNodes = useMemo(
+    () =>
+      selectedPhrase
+        ? createFrontendDemoNodes(
+            "token",
+            phraseKeywords(selectedPhrase),
+          )
+        : [],
     [selectedPhrase],
   );
-  const selectedPhraseNodeId = selectedPhrase
-    ? `phrase-${selectedCategory?.centroidPhrases.indexOf(selectedPhrase)}`
-    : null;
 
-  const visibleDepth = selectedKeyword
+  const visibleDepth = selectedKeywordNodeId
     ? 4
-    : selectedPhrase
+    : selectedPhraseNodeId
       ? 3
-      : selectedCategoryId
+      : selectedLeafNodeId
         ? 2
-        : selectedPageId
+        : selectedPageNodeId
           ? 1
           : 0;
 
@@ -119,17 +178,49 @@ export function CategoryMemoryBTree() {
     const timer = window.setTimeout(() => {
       const nextStep = demoStep + 1;
 
-      if (nextStep === 1) setSelectedPageId(DEMO_LOOKUP.branchId);
-      if (nextStep === 2) setSelectedCategoryId(DEMO_LOOKUP.categoryId);
-      if (nextStep === 3) setSelectedPhrase(DEMO_LOOKUP.phrase);
-      if (nextStep === 4) setSelectedKeyword(DEMO_LOOKUP.keyword);
+      if (nextStep === 1) {
+        const target = pageNodes.find(
+          (node) => node.source.pageId === DEMO_LOOKUP.branchId,
+        );
+        if (target) {
+          setSelectedPageNodeId(target.nodeId);
+          setSelectedPageId(target.source.pageId);
+        }
+      }
+      if (nextStep === 2) {
+        const target = leafNodes.find(
+          (node) => node.source.categoryId === DEMO_LOOKUP.categoryId,
+        );
+        if (target) {
+          setSelectedLeafNodeId(target.nodeId);
+          setSelectedCategoryId(target.source.categoryId);
+        }
+      }
+      if (nextStep === 3) {
+        const target = phraseNodes.find(
+          (node) => node.source === DEMO_LOOKUP.phrase,
+        );
+        if (target) {
+          setSelectedPhraseNodeId(target.nodeId);
+          setSelectedPhrase(target.source);
+        }
+      }
+      if (nextStep === 4) {
+        const target = tokenNodes.find(
+          (node) => node.source === DEMO_LOOKUP.keyword,
+        );
+        if (target) {
+          setSelectedKeywordNodeId(target.nodeId);
+          setSelectedKeyword(target.source);
+        }
+      }
 
       if (nextStep <= 4) setDemoStep(nextStep);
       else setMode("complete");
     }, delay);
 
     return () => window.clearTimeout(timer);
-  }, [demoStep, mode]);
+  }, [demoStep, leafNodes, mode, pageNodes, phraseNodes, tokenNodes]);
 
   useEffect(() => {
     if (selectedPageId) scrollLevelIntoView(leafLevelRef.current);
@@ -153,26 +244,26 @@ export function CategoryMemoryBTree() {
       const groups: Array<{ parentId: string; state: EdgeState }> = [
         {
           parentId: "index-root",
-          state: selectedPageId ? "visited" : "current",
+          state: selectedPageNodeId ? "visited" : "current",
         },
       ];
 
-      if (selectedPageId) {
+      if (selectedPageNodeId) {
         groups.push({
-          parentId: selectedPageId,
-          state: selectedCategoryId ? "visited" : "current",
+          parentId: selectedPageNodeId,
+          state: selectedLeafNodeId ? "visited" : "current",
         });
       }
-      if (selectedCategoryId) {
+      if (selectedLeafNodeId) {
         groups.push({
-          parentId: selectedCategoryId,
-          state: selectedPhrase ? "visited" : "current",
+          parentId: selectedLeafNodeId,
+          state: selectedPhraseNodeId ? "visited" : "current",
         });
       }
       if (selectedPhraseNodeId) {
         groups.push({
           parentId: selectedPhraseNodeId,
-          state: selectedKeyword ? "visited" : "current",
+          state: selectedKeywordNodeId ? "visited" : "current",
         });
       }
 
@@ -184,7 +275,12 @@ export function CategoryMemoryBTree() {
           treeElement.querySelectorAll<HTMLElement>(
             `[data-edge-parent="${parentId}"]`,
           ),
-        );
+        ).filter((child) => {
+          const childRect = child.getBoundingClientRect();
+          return (
+            childRect.right > treeRect.left && childRect.left < treeRect.right
+          );
+        });
         if (!parent || children.length === 0) return [];
 
         const parentRect = parent.getBoundingClientRect();
@@ -215,48 +311,75 @@ export function CategoryMemoryBTree() {
     const resizeObserver = new ResizeObserver(updateEdges);
     resizeObserver.observe(treeElement);
     window.addEventListener("resize", updateEdges);
+    const scrollContainers = Array.from(
+      treeElement.querySelectorAll<HTMLElement>("[data-edge-scroll]"),
+    );
+    scrollContainers.forEach((container) =>
+      container.addEventListener("scroll", updateEdges, { passive: true }),
+    );
     const animationFrame = requestAnimationFrame(updateEdges);
     const settledAnimation = window.setTimeout(updateEdges, 800);
 
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateEdges);
+      scrollContainers.forEach((container) =>
+        container.removeEventListener("scroll", updateEdges),
+      );
       cancelAnimationFrame(animationFrame);
       window.clearTimeout(settledAnimation);
     };
-  }, [selectedCategoryId, selectedKeyword, selectedPageId, selectedPhrase, selectedPhraseNodeId]);
+  }, [
+    selectedKeywordNodeId,
+    selectedLeafNodeId,
+    selectedPageNodeId,
+    selectedPhraseNodeId,
+  ]);
 
-  function selectPage(pageId: string) {
+  function selectPage(node: FrontendDemoNode<CategoryIndexPage>) {
     setMode("manual");
-    setSelectedPageId(pageId);
+    setSelectedPageNodeId(node.nodeId);
+    setSelectedPageId(node.source.pageId);
+    setSelectedLeafNodeId(null);
     setSelectedCategoryId(null);
+    setSelectedPhraseNodeId(null);
     setSelectedPhrase(null);
+    setSelectedKeywordNodeId(null);
     setSelectedKeyword(null);
   }
 
-  function selectCategory(categoryId: string) {
+  function selectCategory(node: FrontendDemoNode<IndustryCategorySeed>) {
     setMode("manual");
-    setSelectedPageId(pageForCategory(categoryId)?.pageId ?? null);
-    setSelectedCategoryId(categoryId);
+    setSelectedLeafNodeId(node.nodeId);
+    setSelectedCategoryId(node.source.categoryId);
+    setSelectedPhraseNodeId(null);
     setSelectedPhrase(null);
+    setSelectedKeywordNodeId(null);
     setSelectedKeyword(null);
   }
 
-  function selectPhrase(phrase: string) {
+  function selectPhrase(node: FrontendDemoNode<string>) {
     setMode("manual");
-    setSelectedPhrase(phrase);
+    setSelectedPhraseNodeId(node.nodeId);
+    setSelectedPhrase(node.source);
+    setSelectedKeywordNodeId(null);
     setSelectedKeyword(null);
   }
 
-  function selectKeyword(keyword: string) {
+  function selectKeyword(node: FrontendDemoNode<string>) {
     setMode("manual");
-    setSelectedKeyword(keyword);
+    setSelectedKeywordNodeId(node.nodeId);
+    setSelectedKeyword(node.source);
   }
 
   function replayDemo() {
+    setSelectedPageNodeId(null);
     setSelectedPageId(null);
+    setSelectedLeafNodeId(null);
     setSelectedCategoryId(null);
+    setSelectedPhraseNodeId(null);
     setSelectedPhrase(null);
+    setSelectedKeywordNodeId(null);
     setSelectedKeyword(null);
     setDemoStep(0);
     setMode("auto");
@@ -376,7 +499,7 @@ export function CategoryMemoryBTree() {
         </header>
         <article
           className={`${styles.dbPage} ${styles.rootPage} ${
-            selectedPageId ? styles.nodeVisited : styles.nodeCurrent
+            selectedPageNodeId ? styles.nodeVisited : styles.nodeCurrent
           }`}
           data-edge-node="index-root"
         >
@@ -392,7 +515,7 @@ export function CategoryMemoryBTree() {
             <strong>&lt; PET</strong>
             <span>ptr 02</span>
           </div>
-          {!selectedPageId ? <ScanCursor label="ROOT PROBE" /> : null}
+          {!selectedPageNodeId ? <ScanCursor label="ROOT PROBE" /> : null}
         </article>
       </div>
 
@@ -403,33 +526,34 @@ export function CategoryMemoryBTree() {
           <span>LEVEL 01 · INTERNAL PAGES</span>
           <p>Key ranges route the lookup without scanning every record.</p>
         </header>
-        <ol className={styles.branchFan}>
-          {CATEGORY_INDEX_PAGES.map((page, index) => {
-            const isSelected = selectedPageId === page.pageId;
+        <ol className={styles.branchFan} data-edge-scroll>
+          {pageNodes.map((node, index) => {
+            const page = node.source;
+            const isSelected = selectedPageNodeId === node.nodeId;
             return (
-              <li key={page.pageId} style={cascadeStyle(index)}>
+              <li key={node.nodeId} style={cascadeStyle(index)}>
                 <button
                   type="button"
                   className={`${styles.dbPage} ${styles.branchPage} ${
                     isSelected
-                      ? selectedCategoryId
+                      ? selectedLeafNodeId
                         ? styles.nodeVisited
                         : styles.nodeCurrent
                       : ""
                   }`}
                   aria-pressed={isSelected}
-                  onClick={() => selectPage(page.pageId)}
+                  onClick={() => selectPage(node)}
                   data-edge-parent="index-root"
-                  data-edge-node={page.pageId}
+                  data-edge-node={node.nodeId}
                 >
                   <span className={styles.pageChrome}>
-                    <span>INTERNAL {String(index + 1).padStart(2, "0")}</span>
+                    <span>DEMO PAGE {String(index + 1).padStart(2, "0")}</span>
                     <code>{page.blockAddress}</code>
                   </span>
                   <strong>[ {page.keyRange} ]</strong>
-                  <small>{page.categoryIds.length} leaf tuples</small>
-                  <code>ptr → {page.pageId}</code>
-                  {isSelected && !selectedCategoryId ? (
+                  <small>frontend-only · {page.categoryIds.length} seed refs</small>
+                  <code>ptr → {node.nodeId}</code>
+                  {isSelected && !selectedLeafNodeId ? (
                     <ScanCursor label="RANGE HIT" />
                   ) : null}
                 </button>
@@ -447,40 +571,39 @@ export function CategoryMemoryBTree() {
               <span>LEVEL 02 · LINKED LEAF PAGE</span>
               <p>
                 {selectedPage.pageId} · key range {selectedPage.keyRange} ·
-                sibling pointers remain at leaf level
+                15 frontend-only nodes · horizontally scrollable
               </p>
             </header>
-            <ol className={styles.leafChain}>
-              {selectedPage.categoryIds.map((categoryId, index) => {
-                const category = categoryById(categoryId);
-                if (!category) return null;
-                const isSelected = categoryId === selectedCategoryId;
+            <ol className={styles.leafChain} data-edge-scroll>
+              {leafNodes.map((node, index) => {
+                const category = node.source;
+                const isSelected = selectedLeafNodeId === node.nodeId;
                 return (
-                  <li key={categoryId} style={cascadeStyle(index)}>
+                  <li key={node.nodeId} style={cascadeStyle(index)}>
                     <button
                       type="button"
                       className={`${styles.dbPage} ${styles.leafPage} ${
                         isSelected
-                          ? selectedPhrase
+                          ? selectedPhraseNodeId
                             ? styles.nodeVisited
                             : styles.nodeCurrent
                           : ""
                       }`}
                       aria-pressed={isSelected}
-                      onClick={() => selectCategory(categoryId)}
-                      data-edge-parent={selectedPage.pageId}
-                      data-edge-node={categoryId}
+                      onClick={() => selectCategory(node)}
+                      data-edge-parent={selectedPageNodeId ?? ""}
+                      data-edge-node={node.nodeId}
                     >
                       <span className={styles.pageChrome}>
-                        <span>LEAF SLOT {String(index).padStart(2, "0")}</span>
+                        <span>DEMO LEAF {String(index + 1).padStart(2, "0")}</span>
                         <code>tid ({index + 11},1)</code>
                       </span>
                       <strong>{category.label}</strong>
                       <code>{category.categoryId}</code>
                       <small>
-                        created_by={category.createdBy} · centroid=vector(1536)
+                        frontend-only · seed_ref={category.categoryId}
                       </small>
-                      {isSelected && !selectedPhrase ? (
+                      {isSelected && !selectedPhraseNodeId ? (
                         <ScanCursor label="LEAF HIT" />
                       ) : null}
                     </button>
@@ -504,29 +627,32 @@ export function CategoryMemoryBTree() {
               </p>
             </header>
             {selectedCategory.centroidPhrases.length ? (
-              <ol className={styles.payloadGrid}>
-                {selectedCategory.centroidPhrases.map((phrase, index) => {
-                  const isSelected = phrase === selectedPhrase;
+              <ol className={styles.payloadGrid} data-edge-scroll>
+                {phraseNodes.map((node, index) => {
+                  const phrase = node.source;
+                  const isSelected = selectedPhraseNodeId === node.nodeId;
                   return (
-                    <li key={phrase} style={cascadeStyle(index)}>
+                    <li key={node.nodeId} style={cascadeStyle(index)}>
                       <button
                         type="button"
                         className={`${styles.payloadRecord} ${
                           isSelected
-                            ? selectedKeyword
+                            ? selectedKeywordNodeId
                               ? styles.nodeVisited
                               : styles.nodeCurrent
                             : ""
                         }`}
                         aria-pressed={isSelected}
-                        onClick={() => selectPhrase(phrase)}
-                        data-edge-parent={selectedCategory.categoryId}
-                        data-edge-node={`phrase-${index}`}
+                        onClick={() => selectPhrase(node)}
+                        data-edge-parent={selectedLeafNodeId ?? ""}
+                        data-edge-node={node.nodeId}
                       >
-                        <span>vector probe {String(index + 1).padStart(2, "0")}</span>
+                        <span>
+                          demo payload {String(index + 1).padStart(2, "0")}
+                        </span>
                         <strong>{phrase}</strong>
-                        <code>cosine candidate</code>
-                        {isSelected && !selectedKeyword ? (
+                        <code>frontend-only · cosine candidate</code>
+                        {isSelected && !selectedKeywordNodeId ? (
                           <ScanCursor label="PAYLOAD PROBE" />
                         ) : null}
                       </button>
@@ -552,23 +678,25 @@ export function CategoryMemoryBTree() {
               <span>LEVEL 04 · SEMANTIC TOKEN LEAVES</span>
               <p>{selectedPhrase}</p>
             </header>
-            <ol className={styles.tokenChain}>
-              {keywords.map((keyword, index) => {
-                const isSelected = keyword === selectedKeyword;
+            <ol className={styles.tokenChain} data-edge-scroll>
+              {tokenNodes.map((node, index) => {
+                const keyword = node.source;
+                const isSelected = selectedKeywordNodeId === node.nodeId;
                 return (
-                  <li key={keyword} style={cascadeStyle(index)}>
+                  <li key={node.nodeId} style={cascadeStyle(index)}>
                     <button
                       type="button"
                       className={`${styles.tokenRecord} ${
                         isSelected ? styles.nodeHit : ""
                       }`}
                       aria-pressed={isSelected}
-                      onClick={() => selectKeyword(keyword)}
+                      onClick={() => selectKeyword(node)}
                       data-edge-parent={selectedPhraseNodeId ?? ""}
-                      data-edge-node={`token-${index}`}
+                      data-edge-node={node.nodeId}
                     >
-                      <span>{String(index).padStart(2, "0")}</span>
+                      <span>{String(index + 1).padStart(2, "0")}</span>
                       <strong>{keyword}</strong>
+                      <code>frontend-only</code>
                     </button>
                   </li>
                 );
@@ -599,6 +727,10 @@ export function CategoryMemoryBTree() {
           <div>
             <dt>rows</dt>
             <dd>13 seed + UNCATEGORIZED</dd>
+          </div>
+          <div>
+            <dt>demo fanout</dt>
+            <dd>15 frontend-only nodes per level</dd>
           </div>
           <div>
             <dt>centroid</dt>

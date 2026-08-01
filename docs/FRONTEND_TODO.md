@@ -81,6 +81,7 @@
 - [x] 방문·현재 probe·leaf hit 및 child/sibling pointer를 시각적으로 구분
 - [x] 사용자 node 선택 시 자동 탐색 중단, Pause/Resume·Replay 제공
 - [x] B+ tree UI가 IVFFlat 물리 구조나 FK hierarchy가 아님을 명시
+- [x] 각 sub level에 동일 크기의 frontend-only demo node 15개와 가로 스크롤 제공
 - [x] 모바일·키보드 탐색과 `prefers-reduced-motion` fallback 제공
 - [x] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
 
