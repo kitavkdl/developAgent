@@ -16,7 +16,6 @@ from counter.ui_theme import (
     ACCENT_BRIGHT,
     TEAL_BRIGHT,
     VERDICT_COLORS,
-    eyebrow,
     inject_theme,
     kpi_row,
     plotly_layout,
@@ -27,7 +26,6 @@ inject_theme()
 bridge_secrets_to_env()
 settings = load_settings()
 
-st.markdown(eyebrow("Evidence-memory analytics"), unsafe_allow_html=True)
 st.title("통계 대시보드")
 st.markdown(
     '<p class="ctr-lede">숫자를 대조해서 판단합니다 — 후보 대비 승격률, '

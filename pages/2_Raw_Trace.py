@@ -17,7 +17,6 @@ import streamlit as st
 from counter.settings import bridge_secrets_to_env, load_settings
 from counter.ui_theme import (
     PROVIDER_COLORS,
-    eyebrow,
     inject_theme,
     plain_chip,
     plotly_layout,
@@ -29,7 +28,6 @@ inject_theme()
 bridge_secrets_to_env()
 settings = load_settings()
 
-st.markdown(eyebrow("Second screen — 대회 규칙 3"), unsafe_allow_html=True)
 st.title("Raw Trace")
 st.markdown(
     '<p class="ctr-lede">tool_call / tool_result를 가공 없이 노출합니다. '

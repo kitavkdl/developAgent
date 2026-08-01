@@ -78,26 +78,6 @@ h1, h2, h3 {{
   color: #f4efe4 !important;
 }}
 
-.ctr-eyebrow {{
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin: 0 0 0.35rem;
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: {INK_DIM};
-}}
-
-.ctr-eyebrow > span.dot {{
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 999px;
-  background: {ACCENT};
-  box-shadow: 0 0 0 4px rgba(196, 120, 43, 0.16);
-}}
-
 .ctr-lede {{
   max-width: 46rem;
   color: #c5cec8;
@@ -300,10 +280,6 @@ code {{
 
 def inject_theme() -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
-
-
-def eyebrow(text: str) -> str:
-    return f'<div class="ctr-eyebrow"><span class="dot"></span>{text}</div>'
 
 
 def verdict_badge(verdict_code: str) -> str:

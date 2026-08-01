@@ -11,14 +11,13 @@ import base64
 import streamlit as st
 
 from counter.settings import bridge_secrets_to_env, load_settings
-from counter.ui_theme import cache_badge, eyebrow, inject_theme, verdict_badge
+from counter.ui_theme import cache_badge, inject_theme, verdict_badge
 
 st.set_page_config(page_title="COUNTER", layout="wide")
 inject_theme()
 bridge_secrets_to_env()
 settings = load_settings()
 
-st.markdown(eyebrow("Counter-evidence engine"), unsafe_allow_html=True)
 st.title("COUNTER")
 st.markdown(
     '<p class="ctr-lede">광고 최상급 주장(국내 최초 · 업계 1위 · 임상 완료 …)의 '
