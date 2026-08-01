@@ -1,5 +1,7 @@
 export type DemoScenarioId = "fresh" | "stale" | "miss" | "seed";
 
+export type PlaybackSpeed = "slow" | "normal" | "fast";
+
 export type JobViewState =
   | "idle"
   | "submitting"
@@ -65,6 +67,8 @@ export interface TraceLine {
   agent_label?: string;
   summary: string;
   created_at: string;
+  /** Graph entity to highlight with this trace line (e.g. search_run_id). */
+  relatedEntityId?: string;
 }
 
 export interface TableRows {
@@ -95,10 +99,24 @@ export type GraphNodeData = {
   label: string;
   subtitle?: string;
   stale?: boolean;
+  /** Newly extracted after stale refresh / delta search. */
+  freshDelta?: boolean;
+  /** Reused from cache (fresh hit or pre-delta stale). */
+  reused?: boolean;
+  pulse?: boolean;
+  emphasis?: boolean;
+  /** Show cache decision ring on Claim. */
+  cacheRing?: CacheDecision | null;
   access_level?: AccessLevel;
   verdict?: VerdictEnum;
   entityId: string;
   [key: string]: unknown;
+};
+
+export const PLAYBACK_STEP_MS: Record<PlaybackSpeed, number> = {
+  slow: 700,
+  normal: 420,
+  fast: 180,
 };
 
 export type TableTab =

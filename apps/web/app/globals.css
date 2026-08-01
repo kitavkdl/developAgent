@@ -118,6 +118,64 @@ body {
   color: var(--ink-soft);
 }
 
+.hero__controls,
+.stage__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem 1.25rem;
+  margin-top: 1rem;
+}
+
+.playback-speed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+}
+
+.playback-speed__label,
+.scenario-switcher__label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.playback-speed__options {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.playback-speed button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.playback-speed button.is-active {
+  border-color: var(--teal);
+  background: rgba(31, 122, 108, 0.12);
+  color: var(--ink);
+}
+
+.demo-shell--active .playback-speed button {
+  border-color: var(--line-bright);
+  background: rgba(255, 255, 255, 0.04);
+  color: #c5cec8;
+}
+
+.demo-shell--active .playback-speed button.is-active {
+  border-color: rgba(196, 120, 43, 0.55);
+  background: rgba(196, 120, 43, 0.16);
+  color: #f0d7b0;
+}
+
 .search-bar {
   display: flex;
   gap: 0.65rem;
@@ -387,6 +445,13 @@ body {
   border-radius: 0.55rem;
   background: rgba(255, 255, 255, 0.03);
   animation: line-in 0.35s var(--ease-stage) both;
+  border: 1px solid transparent;
+  transition: border-color 0.25s var(--ease-stage), background 0.25s var(--ease-stage);
+}
+
+.trace-list li.is-active {
+  border-color: rgba(196, 120, 43, 0.45);
+  background: rgba(196, 120, 43, 0.12);
 }
 
 .trace-list__empty {
@@ -533,6 +598,10 @@ body {
   background: rgba(196, 120, 43, 0.12);
 }
 
+.table-panel tbody tr.is-flash {
+  animation: row-flash 0.7s var(--ease-stage);
+}
+
 .detail-drawer {
   position: fixed;
   top: 0;
@@ -593,7 +662,39 @@ body {
   color: #e2b572;
 }
 
+.react-flow__node.is-entering .graph-node {
+  animation: node-enter 0.32s var(--ease-stage) both;
+}
+
+.react-flow__edge.is-drawing .growth-edge-path {
+  stroke-dasharray: 6 4;
+  animation: edge-draw 0.45s var(--ease-stage) both;
+}
+
+.react-flow__edge.growth-edge--verdict .growth-edge-path {
+  stroke: rgba(159, 217, 176, 0.85);
+}
+
+.react-flow__edge.growth-edge--fresh .growth-edge-path {
+  stroke: rgba(226, 181, 114, 0.9);
+}
+
+.react-flow__edge.growth-edge--stale .growth-edge-path {
+  stroke: rgba(232, 220, 196, 0.28);
+  opacity: 0.7;
+}
+
+.react-flow__edge.is-path .growth-edge-path {
+  stroke: rgba(196, 120, 43, 0.95) !important;
+  stroke-width: 2.4;
+}
+
+.react-flow__edge.is-live .growth-edge-path {
+  stroke-dasharray: 5 4;
+}
+
 .graph-node {
+  position: relative;
   min-width: 150px;
   max-width: 200px;
   padding: 0.55rem 0.7rem;
@@ -602,7 +703,8 @@ body {
   background: rgba(18, 40, 34, 0.95);
   color: #eef2ef;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-  transition: opacity 0.45s var(--ease-stage), transform 0.45s var(--ease-stage);
+  transition: opacity 0.45s var(--ease-stage), transform 0.45s var(--ease-stage),
+    border-color 0.3s var(--ease-stage), box-shadow 0.3s var(--ease-stage);
 }
 
 .graph-node strong {
@@ -652,9 +754,61 @@ body {
   opacity: 0.45;
 }
 
+.graph-node.is-fresh {
+  border-color: rgba(226, 181, 114, 0.7);
+  box-shadow: 0 0 0 1px rgba(226, 181, 114, 0.25), 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.graph-node.is-pulse {
+  animation: node-pulse 0.9s var(--ease-stage) infinite;
+}
+
+.graph-node.is-emphasis {
+  border-color: rgba(232, 220, 196, 0.55);
+}
+
 .graph-node.is-selected {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.graph-node.has-cache-ring {
+  box-shadow:
+    0 0 0 3px rgba(196, 120, 43, 0.22),
+    0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.graph-node__cache-ring {
+  position: absolute;
+  top: -0.55rem;
+  right: -0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(196, 120, 43, 0.22);
+  border: 1px solid rgba(196, 120, 43, 0.45);
+  color: #f0d7b0;
+  white-space: nowrap;
+}
+
+.graph-node__cache-ring[data-decision="HIT_FRESH"] {
+  background: rgba(47, 125, 76, 0.28);
+  border-color: rgba(47, 125, 76, 0.5);
+  color: #b9e0c4;
+}
+
+.graph-node__cache-ring[data-decision="MISS"] {
+  background: rgba(31, 122, 108, 0.28);
+  border-color: rgba(31, 122, 108, 0.5);
+  color: #b7e0d7;
+}
+
+.graph-node__cache-ring[data-decision="SEED_ONLY"] {
+  background: rgba(176, 122, 26, 0.25);
+  border-color: rgba(176, 122, 26, 0.5);
+  color: #edd49a;
 }
 
 .react-flow__controls {
@@ -717,6 +871,51 @@ body {
   }
 }
 
+@keyframes node-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes edge-draw {
+  from {
+    opacity: 0;
+    stroke-dashoffset: 24;
+  }
+  to {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes node-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow:
+      0 0 0 4px rgba(196, 120, 43, 0.16),
+      0 12px 28px rgba(0, 0, 0, 0.3);
+  }
+}
+
+@keyframes row-flash {
+  0% {
+    background: rgba(196, 120, 43, 0.28);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
 @media (max-width: 960px) {
   .stage__main {
     grid-template-columns: 1fr;
@@ -737,8 +936,18 @@ body {
   .stage__graph-wrap,
   .trace-list li,
   .detail-drawer,
-  .graph-node {
+  .graph-node,
+  .react-flow__node.is-entering .graph-node,
+  .react-flow__edge.is-drawing .growth-edge-path,
+  .graph-node.is-pulse,
+  .table-panel tbody tr.is-flash {
     animation: none !important;
-    transition: none !important;
+    transition: opacity 0.2s linear !important;
+    transform: none !important;
+  }
+
+  .react-flow__node.is-entering .graph-node,
+  .react-flow__edge.is-drawing .growth-edge-path {
+    opacity: 1;
   }
 }

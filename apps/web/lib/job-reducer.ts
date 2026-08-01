@@ -5,7 +5,7 @@ import type {
   TraceLine,
   VerdictEnum,
 } from "@/types/domain";
-import type { ResearchEvent } from "@/types/events";
+import type { ResearchEvent, ResearchEventType } from "@/types/events";
 
 export interface JobViewModel {
   jobId: string | null;
@@ -21,6 +21,20 @@ export interface JobViewModel {
   events: ResearchEvent[];
   traces: TraceLine[];
   tables: TableRows;
+  /** Latest event type for stage focus mapping. */
+  lastEventType: ResearchEventType | null;
+  /** Entity ids that should pulse (claim, search run, evidence, verdict). */
+  focusEntityIds: string[];
+  activeTraceId: string | null;
+  activeSearchRunId: string | null;
+  /** Evidence/source ids shown as cache reuse (dim). */
+  reusedEntityIds: string[];
+  /** Evidence/source ids from delta refresh (highlight). */
+  freshEntityIds: string[];
+  /** After HIT_STALE, first tool.call starts delta path. */
+  deltaRefreshStarted: boolean;
+  /** True once job.completed — trigger final fitView. */
+  growthComplete: boolean;
 }
 
 export function createInitialJobView(query = ""): JobViewModel {
@@ -44,6 +58,14 @@ export function createInitialJobView(query = ""): JobViewModel {
       verdict_versions: [],
       search_runs: [],
     },
+    lastEventType: null,
+    focusEntityIds: [],
+    activeTraceId: null,
+    activeSearchRunId: null,
+    reusedEntityIds: [],
+    freshEntityIds: [],
+    deltaRefreshStarted: false,
+    growthComplete: false,
   };
 }
 
@@ -60,8 +82,39 @@ function pushTrace(
       agent_label: line.agent_label,
       summary: line.summary,
       created_at: line.created_at,
+      relatedEntityId: line.relatedEntityId,
     },
   ];
+}
+
+function withFocus(
+  next: JobViewModel,
+  entityIds: string[],
+  traceId?: string | null,
+): void {
+  next.focusEntityIds = entityIds;
+  if (traceId !== undefined) next.activeTraceId = traceId;
+  else if (next.traces.length) {
+    next.activeTraceId = next.traces[next.traces.length - 1]?.id ?? null;
+  }
+}
+
+function markReuseOrFresh(next: JobViewModel, entityIds: string[]): void {
+  const isFreshHit = next.cacheDecision === "HIT_FRESH";
+  const isStaleReuse =
+    next.cacheDecision === "HIT_STALE" && !next.deltaRefreshStarted;
+  const isStaleDelta =
+    next.cacheDecision === "HIT_STALE" && next.deltaRefreshStarted;
+
+  if (isFreshHit || isStaleReuse) {
+    next.reusedEntityIds = Array.from(
+      new Set([...next.reusedEntityIds, ...entityIds]),
+    );
+  } else if (isStaleDelta) {
+    next.freshEntityIds = Array.from(
+      new Set([...next.freshEntityIds, ...entityIds]),
+    );
+  }
 }
 
 export function applyResearchEvent(
@@ -71,6 +124,8 @@ export function applyResearchEvent(
   const next: JobViewModel = {
     ...state,
     events: [...state.events, event],
+    lastEventType: event.type,
+    growthComplete: false,
     tables: {
       claims: [...state.tables.claims],
       sources: [...state.tables.sources],
@@ -78,6 +133,9 @@ export function applyResearchEvent(
       verdict_versions: [...state.tables.verdict_versions],
       search_runs: [...state.tables.search_runs],
     },
+    reusedEntityIds: [...state.reusedEntityIds],
+    freshEntityIds: [...state.freshEntityIds],
+    focusEntityIds: [],
   };
 
   switch (event.type) {
@@ -90,6 +148,7 @@ export function applyResearchEvent(
         summary: "Job created",
         created_at: event.created_at,
       });
+      withFocus(next, []);
       break;
 
     case "claim.normalized":
@@ -103,7 +162,9 @@ export function applyResearchEvent(
         kind: "system",
         summary: `Normalized claim · ${event.payload.signature_summary}`,
         created_at: event.created_at,
+        relatedEntityId: event.payload.claim_id,
       });
+      withFocus(next, [event.payload.claim_id]);
       break;
 
     case "cache.candidate":
@@ -113,6 +174,7 @@ export function applyResearchEvent(
         summary: `Cache candidates · ${event.payload.candidate_claim_ids.length}`,
         created_at: event.created_at,
       });
+      withFocus(next, next.tables.claims[0] ? [next.tables.claims[0].id] : []);
       break;
 
     case "cache.decision":
@@ -123,12 +185,18 @@ export function applyResearchEvent(
         kind: "system",
         summary: `Cache decision · ${event.payload.decision}`,
         created_at: event.created_at,
+        relatedEntityId: next.tables.claims[0]?.id,
       });
+      withFocus(next, next.tables.claims[0] ? [next.tables.claims[0].id] : []);
       break;
 
     case "tool.call": {
       const runId =
-        event.payload.search_run_id ?? `run-${event.sequence}-${event.payload.tool_name}`;
+        event.payload.search_run_id ??
+        `run-${event.sequence}-${event.payload.tool_name}`;
+      if (next.cacheDecision === "HIT_STALE") {
+        next.deltaRefreshStarted = true;
+      }
       if (!next.tables.search_runs.some((r) => r.id === runId)) {
         next.tables.search_runs.push({
           id: runId,
@@ -139,13 +207,16 @@ export function applyResearchEvent(
           status: "running",
         });
       }
+      next.activeSearchRunId = runId;
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "tool.call",
         agent_label: event.payload.agent_label,
         summary: `${event.payload.tool_name}(${JSON.stringify(event.payload.args_redacted)})`,
         created_at: event.created_at,
+        relatedEntityId: runId,
       });
+      withFocus(next, [runId]);
       break;
     }
 
@@ -157,19 +228,23 @@ export function applyResearchEvent(
             ? { ...r, status: event.payload.ok ? "ok" : "failed" }
             : r,
         );
+        next.activeSearchRunId = runId;
       }
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "tool.result",
         summary: event.payload.result_summary,
         created_at: event.created_at,
+        relatedEntityId: runId,
       });
+      withFocus(next, runId ? [runId] : []);
       break;
     }
 
     case "evidence.extracted": {
       const ev = event.payload;
       next.tables.evidence_units.push(ev);
+      const linked: string[] = [ev.evidence_id];
       if (
         ev.source_id &&
         !next.tables.sources.some((s) => s.id === ev.source_id)
@@ -181,19 +256,39 @@ export function applyResearchEvent(
           access_level: ev.access_level,
         });
       }
+      if (ev.source_id) linked.push(ev.source_id);
+      markReuseOrFresh(next, linked);
+      next.traces = pushTrace(next, {
+        sequence: event.sequence,
+        kind: "system",
+        summary: `Evidence · ${ev.title ?? ev.evidence_id}`,
+        created_at: event.created_at,
+        relatedEntityId: ev.evidence_id,
+      });
+      withFocus(next, linked);
       break;
     }
 
-    case "verdict.updated":
+    case "verdict.updated": {
+      const verdictId = `verdict-${event.sequence}`;
       next.verdict = event.payload.verdict;
       next.reasonCodes = event.payload.reason_codes ?? [];
       next.tables.verdict_versions.push({
-        id: `verdict-${event.sequence}`,
+        id: verdictId,
         verdict: event.payload.verdict,
         evidence_ids: event.payload.evidence_ids,
         evaluated_at: event.created_at,
       });
+      next.traces = pushTrace(next, {
+        sequence: event.sequence,
+        kind: "system",
+        summary: `Verdict · ${event.payload.verdict}`,
+        created_at: event.created_at,
+        relatedEntityId: verdictId,
+      });
+      withFocus(next, [verdictId, ...event.payload.evidence_ids]);
       break;
+    }
 
     case "answer.delta":
       next.answer += event.payload.text_delta;
@@ -204,17 +299,30 @@ export function applyResearchEvent(
             ...event.payload.citation_evidence_ids,
           ]),
         );
+        withFocus(next, event.payload.citation_evidence_ids);
       }
       break;
 
     case "job.completed":
       next.status =
         event.payload.status === "degraded" ? "degraded" : "complete";
+      next.growthComplete = true;
+      next.activeSearchRunId = null;
+      next.focusEntityIds = [];
+      next.traces = pushTrace(next, {
+        sequence: event.sequence,
+        kind: "system",
+        summary: `Job ${event.payload.status}`,
+        created_at: event.created_at,
+      });
+      withFocus(next, [], next.traces[next.traces.length - 1]?.id ?? null);
       break;
 
     case "job.failed":
       next.status = "failed";
       next.errorMessage = event.payload.message;
+      next.growthComplete = true;
+      next.focusEntityIds = [];
       break;
   }
 

@@ -17,6 +17,7 @@ export interface ResearchClient {
     jobId: string,
     onEvent: (event: ResearchEvent) => void,
   ): Unsubscribe;
+  setStepMs?(ms: number): void;
 }
 
 interface StoredJob {
@@ -32,6 +33,10 @@ export class DummyResearchClient implements ResearchClient {
 
   constructor(stepMs = 420) {
     this.stepMs = stepMs;
+  }
+
+  setStepMs(ms: number) {
+    this.stepMs = ms;
   }
 
   async createJob(input: {
@@ -73,11 +78,12 @@ export class DummyResearchClient implements ResearchClient {
 
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
+    const step = this.stepMs;
 
     job.events.forEach((event, index) => {
       const timer = setTimeout(() => {
         if (!cancelled) onEvent(event);
-      }, index * this.stepMs);
+      }, index * step);
       timers.push(timer);
     });
 

@@ -4,6 +4,7 @@ import { AgentTracePanel } from "@/components/AgentTracePanel";
 import { CacheStateBadge } from "@/components/CacheStateBadge";
 import { DetailDrawer } from "@/components/DetailDrawer";
 import { EvidenceGraph } from "@/components/EvidenceGraph";
+import { PlaybackSpeedControl } from "@/components/PlaybackSpeedControl";
 import { ScenarioSwitcher } from "@/components/ScenarioSwitcher";
 import { SchemaTablePanel } from "@/components/SchemaTablePanel";
 import { SearchBar } from "@/components/SearchBar";
@@ -16,6 +17,8 @@ export function DemoShell() {
     model,
     scenario,
     setScenario,
+    playbackSpeed,
+    setPlaybackSpeed,
     selectedEntityId,
     setSelectedEntityId,
     submit,
@@ -38,7 +41,13 @@ export function DemoShell() {
             accumulate into a verdict.
           </p>
           <SearchBar busy={busy} onSubmit={submit} />
-          <ScenarioSwitcher value={scenario} onChange={setScenario} />
+          <div className="hero__controls">
+            <ScenarioSwitcher value={scenario} onChange={setScenario} />
+            <PlaybackSpeedControl
+              value={playbackSpeed}
+              onChange={setPlaybackSpeed}
+            />
+          </div>
         </section>
       ) : (
         <div className="stage">
@@ -61,7 +70,13 @@ export function DemoShell() {
               initialQuery={model.query}
               onSubmit={submit}
             />
-            <ScenarioSwitcher value={scenario} onChange={setScenario} />
+            <div className="stage__controls">
+              <ScenarioSwitcher value={scenario} onChange={setScenario} />
+              <PlaybackSpeedControl
+                value={playbackSpeed}
+                onChange={setPlaybackSpeed}
+              />
+            </div>
           </header>
 
           <div className="stage__main">
@@ -73,7 +88,11 @@ export function DemoShell() {
               />
             </div>
             <div className="stage__side">
-              <AgentTracePanel traces={model.traces} />
+              <AgentTracePanel
+                traces={model.traces}
+                activeTraceId={model.activeTraceId}
+                focusEntityIds={model.focusEntityIds}
+              />
               <VerdictAnswerPanel
                 verdict={model.verdict}
                 answer={model.answer}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DemoScenarioId } from "@/types/domain";
+import type { DemoScenarioId, PlaybackSpeed } from "@/types/domain";
+import { PLAYBACK_STEP_MS } from "@/types/domain";
 import {
   applyResearchEvent,
   createInitialJobView,
@@ -12,6 +13,7 @@ import { getResearchClient } from "./research-client";
 export function useDemoOrchestrator() {
   const [model, setModel] = useState<JobViewModel>(() => createInitialJobView());
   const [scenario, setScenario] = useState<DemoScenarioId>("miss");
+  const [playbackSpeed, setPlaybackSpeed] = useState<PlaybackSpeed>("normal");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
@@ -41,6 +43,8 @@ export function useDemoOrchestrator() {
       });
 
       const client = getResearchClient();
+      client.setStepMs?.(PLAYBACK_STEP_MS[playbackSpeed]);
+
       const { job_id } = await client.createJob({
         query: trimmed,
         scenarioHint: scenario,
@@ -56,13 +60,15 @@ export function useDemoOrchestrator() {
         setModel((prev) => applyResearchEvent(prev, event));
       });
     },
-    [scenario],
+    [scenario, playbackSpeed],
   );
 
   return {
     model,
     scenario,
     setScenario,
+    playbackSpeed,
+    setPlaybackSpeed,
     selectedEntityId,
     setSelectedEntityId,
     submit,

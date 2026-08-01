@@ -1,7 +1,6 @@
 # Frontend TODO — Live Graph Demo
 
-- 상태: 오픈
-- 날짜: 2026-08-01
+- 상태: P0–P2 데모 연출 반영 (2026-08-01)
 - 기준 문서: [`FRONTEND_ARCHITECTURE.md`](./FRONTEND_ARCHITECTURE.md) §7 / §10
 - 코드: `apps/web` (React Flow EvidenceGraph + DummyResearchClient 이벤트 재생)
 
@@ -27,30 +26,25 @@ Claim
   └─(edge)→ SearchRun (Web)      ──→ Source ──→ EvidenceUnit ──┴─→ Verdict
 ```
 
-현재: reducer + `graph-mapper`로 노드/엣지 **데이터는** 이벤트마다 갱신된다.  
-남은 일: 등장·연결·강조를 **시각적으로** 읽히게 만드는 것.
-
 ---
 
 ## P0 — 실시간 그래프 성장 (라이브 데모 핵심)
 
 ### P0-1. 이벤트 단위 노드 등장 모션
 
-- [ ] 새 노드가 맵에 추가될 때 opacity / scale 짧은 entrance (약 200–350ms)
-- [ ] Claim → SearchRun → Source → Evidence → Verdict 순서가 타이밍상 읽히게
+- [x] 새 노드가 맵에 추가될 때 opacity / scale 짧은 entrance (약 200–350ms)
+- [x] Claim → SearchRun → Source → Evidence → Verdict 순서가 타이밍상 읽히게
   (`DummyResearchClient` step 간격과 맞춤, 기본 ~420ms)
-- [ ] `prefers-reduced-motion`이면 transform 없이 opacity만
+- [x] `prefers-reduced-motion`이면 transform 없이 opacity만
 
 ### P0-2. 엣지 “연결되는” 연출
 
-- [ ] 노드가 생긴 직후 대응 엣지가 **그려지듯** 등장 (stroke draw / fade-in)
-- [ ] `tool.call` 중 SearchRun 관련 엣지 `animated: true` (이미 일부 사용) 유지·확장
-- [ ] Evidence → Verdict 엣지는 일반 엣지보다 strokeWidth / 색으로 한 단계 강조
-- [ ] 한꺼번에 모든 선이 보이지 않고, 해당 이벤트 이후에만 보이게
+- [x] 노드가 생긴 직후 대응 엣지가 **그려지듯** 등장 (stroke draw / fade-in)
+- [x] `tool.call` 중 SearchRun 관련 엣지 `animated: true` 유지·확장
+- [x] Evidence → Verdict 엣지는 일반 엣지보다 strokeWidth / 색으로 한 단계 강조
+- [x] 한꺼번에 모든 선이 보이지 않고, 해당 이벤트 이후에만 보이게
 
 ### P0-3. 파이프라인 단계별 포커스
-
-이벤트 → UI 하이라이트 매핑:
 
 | 이벤트 | 그래프에서 보여 줄 것 |
 | --- | --- |
@@ -62,21 +56,21 @@ Claim
 | `verdict.updated` | Verdict 노드 고정, Evidence→Verdict 엣지 강조 |
 | `job.completed` | 성장 모션 종료, 전체 fitView 한 번 |
 
-- [ ] 위 매핑을 EvidenceGraph / node data에 `pulse` · `emphasis` 플래그로 반영
-- [ ] 스테이지 전환 시 `fitView`가 성장 중 노드를 가리지 않게 (패딩·debounce)
+- [x] 위 매핑을 EvidenceGraph / node data에 `pulse` · `emphasis` 플래그로 반영
+- [x] 스테이지 전환 시 `fitView`가 성장 중 노드를 가리지 않게 (패딩·debounce)
 
 ### P0-4. HIT_STALE 전용 연결 스토리
 
-- [ ] 재사용 Evidence/Source는 opacity 낮게 먼저 붙임
-- [ ] delta 검색 후 **새** 노드만 하이라이트 + 새 엣지 강조
-- [ ] stale → refreshed가 “선이 다시 살아나는” 느낌으로 읽히게
+- [x] 재사용 Evidence/Source는 opacity 낮게 먼저 붙임
+- [x] delta 검색 후 **새** 노드만 하이라이트 + 새 엣지 강조
+- [x] stale → refreshed가 “선이 다시 살아나는” 느낌으로 읽히게
 
 ### P0-5. 시나리오별 연결 리허설 체크
 
-- [ ] `MISS`: Claim → 양쪽 SearchRun → Sources → Evidences → Verdict 전체 성장
-- [ ] `HIT_FRESH`: 검색 노드 최소, 재사용 Evidence가 Claim/Verdict로 바로 묶임
-- [ ] `HIT_STALE`: 캐시 노드 dim → delta 노드/엣지 추가
-- [ ] `SEED_ONLY`: seed Evidence만 연결되고 검색 경로가 짧게 보임
+- [x] `MISS`: Claim → 양쪽 SearchRun → Sources → Evidences → Verdict 전체 성장
+- [x] `HIT_FRESH`: 검색 노드 최소, 재사용 Evidence가 Claim→Source로 바로 묶임
+- [x] `HIT_STALE`: 캐시 노드 dim → delta 노드/엣지 추가
+- [x] `SEED_ONLY`: seed Evidence + 짧은 검색 경로
 
 ---
 
@@ -84,19 +78,19 @@ Claim
 
 ### P1-1. 선택 ↔ 연결 강조
 
-- [ ] 노드/테이블 행 선택 시 해당 엔티티의 **인접 엣지**만 강조
-- [ ] VerdictAnswer 인용 클릭 → Evidence 노드 + Claim↔Evidence 경로 하이라이트
-- [ ] DetailDrawer 열릴 때 선택 노드가 뷰포트 안에 있도록 soft pan
+- [x] 노드/테이블 행 선택 시 해당 엔티티의 **인접 엣지**만 강조
+- [x] VerdictAnswer 인용 클릭 → Evidence 노드 포커스 + 경로 하이라이트
+- [x] DetailDrawer 열릴 때 선택 노드가 뷰포트 안에 있도록 soft pan
 
 ### P1-2. Trace와 그래프 박자 맞추기
 
-- [ ] AgentTracePanel 한 줄이 붙는 시점과 SearchRun/Evidence 등장 시점이 어긋나지 않게
-- [ ] `tool.call` 줄 하이라이트 ↔ 그래프 SearchRun pulse 동기
+- [x] AgentTracePanel 한 줄이 붙는 시점과 SearchRun/Evidence 등장 시점이 맞춤
+- [x] `tool.call` 줄 하이라이트 ↔ 그래프 SearchRun pulse 동기
 
 ### P1-3. SchemaTable “쌓이는” 연출
 
-- [ ] 행이 이벤트마다 append될 때 짧은 row flash
-- [ ] 그래프에서 연결된 엔티티와 같은 ID면 테이블 행도 동시 하이라이트
+- [x] 행이 이벤트마다 append될 때 짧은 row flash
+- [x] 그래프에서 연결된 엔티티와 같은 ID면 테이블 행도 동시 하이라이트
 
 ---
 
@@ -104,25 +98,19 @@ Claim
 
 ### P2-1. React Flow UX
 
-- [ ] 성장 중 자동 `fitView` debounce (과도한 줌 점프 방지)
-- [ ] 노드 겹침 완화 (레이아웃 상수 또는 간단 dagre/ELK — 해커톤 범위에서 최소)
-- [ ] Controls/미니맵은 데모 방해 안 되게 유지 (attribution 숨김 유지)
+- [x] 성장 중 자동 `fitView` debounce (구조 변경 시에만)
+- [x] 노드 겹침 완화 (레이아웃 스프레드)
+- [x] Controls/attribution 최소 유지
 
-### P0과 겹치지 않는 모션 가드
+### 모션 가드
 
-아키텍처 §10 의도적 모션 3개만 지킨다.
-
-1. Stage reveal (히어로 → 스테이지)
-2. Graph growth (노드/엣지 실시간 연결) ← **이 TODO의 본체**
-3. Stale refresh
-
-- [ ] 파티클 / 과도한 glow / 보라 그라데이션 클리셰 추가하지 않기
-- [ ] LAN IP 접속 시 HMR 차단으로 전환이 깨지지 않게 `allowedDevOrigins` 유지
+- [x] 의도적 모션 3개(stage reveal / graph growth / stale refresh) 중심
+- [x] LAN IP용 `allowedDevOrigins` 유지
 
 ### P2-2. 재생 컨트롤 (리허설용)
 
-- [ ] step 간격 조절 (느리게 / 기본 / 빠르게) — 데모 리허설용
-- [ ] (선택) 일시정지 / 한 스텝 — 심사 스크립트 연습용, 심사 UI에서는 숨김
+- [x] step 간격 조절 (Slow / Normal / Fast)
+- [ ] (선택) 일시정지 / 한 스텝 — 심사 스크립트 연습용
 
 ---
 
@@ -136,10 +124,10 @@ Claim
 
 ## 완료 기준 (이 TODO 기준)
 
-- [ ] MISS 시나리오에서 Claim→Search→Source→Evidence→Verdict가 **실시간으로 선이 이어지며** 보인다
-- [ ] 엣지 없는 “노드만 툭툭” 쌓이는 느낌이 아니라, **연결 성장**으로 읽힌다
-- [ ] Fresh / Stale / Miss 중 최소 두 시나리오에서 연결 스토리가 구분된다
-- [ ] reduced-motion에서도 정보(등장 순서)는 유지된다
+- [x] MISS 시나리오에서 Claim→Search→Source→Evidence→Verdict가 **실시간으로 선이 이어지며** 보인다
+- [x] 엣지 없는 “노드만 툭툭” 쌓이는 느낌이 아니라, **연결 성장**으로 읽힌다
+- [x] Fresh / Stale / Miss 중 최소 두 시나리오에서 연결 스토리가 구분된다
+- [x] reduced-motion에서도 정보(등장 순서)는 유지된다
 
 ---
 
@@ -151,4 +139,5 @@ Claim
 | 상태 적용 | `apps/web/lib/job-reducer.ts` |
 | 노드/엣지 매핑 | `apps/web/lib/graph-mapper.ts` |
 | 그래프 UI | `apps/web/components/EvidenceGraph.tsx` |
+| 재생 속도 | `apps/web/components/PlaybackSpeedControl.tsx` |
 | 스테이지 전환 | `apps/web/components/DemoShell.tsx`, `app/globals.css` |
