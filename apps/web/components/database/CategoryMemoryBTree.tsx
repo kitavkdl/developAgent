@@ -74,6 +74,9 @@ function cascadeStyle(index: number): CascadeStyle {
   return { "--node-index": index };
 }
 
+/** Extra downward shift as a fraction of the viewport (all stages except level 4). */
+const LEVEL_SCROLL_EXTRA_RATIO = 0.1;
+
 function scrollLevelIntoView(
   node: HTMLElement | null,
   options?: {
@@ -112,6 +115,18 @@ function scrollLevelIntoView(
       top: delta,
       behavior: reducedMotion ? "auto" : "smooth",
     });
+  });
+}
+
+function scrollDownByViewportRatio(ratio: number) {
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  const dy = window.innerHeight * ratio;
+  if (Math.abs(dy) < 1) return;
+  window.scrollBy({
+    top: dy,
+    behavior: reducedMotion ? "auto" : "smooth",
   });
 }
 
@@ -223,13 +238,17 @@ export function CategoryMemoryBTree() {
 
   useEffect(() => {
     if (showLeafLevel) {
-      scrollLevelIntoView(leafLevelRef.current, { extraDownRatio: 0.2 });
+      scrollLevelIntoView(leafLevelRef.current, {
+        extraDownRatio: LEVEL_SCROLL_EXTRA_RATIO,
+      });
     }
   }, [showLeafLevel]);
 
   useEffect(() => {
     if (showPhraseLevel) {
-      scrollLevelIntoView(phraseLevelRef.current, { extraDownRatio: 0.2 });
+      scrollLevelIntoView(phraseLevelRef.current, {
+        extraDownRatio: LEVEL_SCROLL_EXTRA_RATIO,
+      });
     }
   }, [showPhraseLevel]);
 
@@ -238,6 +257,13 @@ export function CategoryMemoryBTree() {
       scrollLevelIntoView(keywordLevelRef.current, { block: "center" });
     }
   }, [showTokenLevel]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      scrollDownByViewportRatio(LEVEL_SCROLL_EXTRA_RATIO);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useLayoutEffect(() => {
     const currentTree = treeRef.current;
