@@ -71,6 +71,17 @@
 캐시 배지·상태, **EvidenceGraph**, AgentTrace, VerdictPanel, SchemaTable이
 나타난다. 선택 시 DetailDrawer가 열린다.
 
+활성 상태의 왼쪽 패널은 세로 방향으로 역할을 다시 배치한다.
+
+- `COUNTER` wordmark는 패널 상단의 고정된 reset anchor로 축소·이동한다.
+- idle에서 wordmark가 차지하던 중심 영역에는 `AnswerPreview`가 나타난다.
+- `submitting` / `streaming` 중에는 현재 이벤트 단계에 맞는 진행 문구를 보여준다.
+- `verdict.assembled` 이후에는 별도의 예시 판정을 만들지 않고 orchestrator의 실제
+  `verdict`와 `summary`를 그대로 보여준다.
+- 실패·degraded 상태는 성공처럼 보이지 않도록 오류/부분 완료 상태를 명시한다.
+- 오른쪽 `VerdictAnswerPanel`은 query 수·reason code·citation 탐색을 포함한 상세
+  결과로 유지하고, 왼쪽 preview는 빠른 읽기를 위한 요약 역할만 소유한다.
+
 `idle → submitting → streaming → complete` 전환은 라우트 이동이나
 `hero`/`stage` 조건부 교체가 아니라, 동일한 DOM 셸의 CSS Grid 컬럼과 opacity를
 변경해서 표현한다. 따라서 입력값과 포커스 맥락이 유지되고 화면 전체가 새로
@@ -79,9 +90,9 @@
 ```text
 Idle                         Running / Complete
 ┌───────────────────────┐    ┌──────────┬────────────────────────┐
-│                       │    │ Input    │ Pipeline workspace     │
-│    Input workspace    │ →  │ 35%      │ 65%                    │
-│                       │    │          │ graph · trace · result │
+│                       │    │ COUNTER  │ Pipeline workspace     │
+│    Input workspace    │ →  │ preview  │ graph · trace · result │
+│                       │    │ controls │                        │
 └───────────────────────┘    └──────────┴────────────────────────┘
 ```
 
@@ -94,6 +105,7 @@ flowchart LR
   Shell --> Table["SchemaTablePanel"]
   Shell --> Detail["DetailDrawer"]
   Shell --> Verdict["VerdictAnswerPanel"]
+  Shell --> Preview["AnswerPreview"]
 ```
 
 ### 3.3 반응형·접근성
