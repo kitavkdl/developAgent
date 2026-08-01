@@ -21,6 +21,7 @@ import styles from "@/app/database/database.module.css";
 
 type ScanMode = "auto" | "paused" | "manual" | "complete";
 type DemoPhase =
+  | "select-branch"
   | "probe"
   | "create-leaf"
   | "spawn-phrase"
@@ -41,7 +42,9 @@ interface EdgeCanvas {
   edges: TreeEdge[];
 }
 
-/** Pointer hop / spawn beat length (phase2). */
+/** L2 pointer hop between existing leaves. */
+const PROBE_HOP_MS = 500;
+/** Create / spawn / L1 hold beat. */
 const LEVEL_HOLD_MS = 5000;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
 
@@ -122,6 +125,8 @@ function phaseStatus(
   initialLeafCount: number,
 ): string {
   switch (phase) {
+    case "select-branch":
+      return "Range hit · Beauty branch";
     case "probe":
       return `Leaf probe · slot ${String((leafProbeIndex ?? 0) + 1).padStart(2, "0")}/${String(initialLeafCount).padStart(2, "0")}`;
     case "create-leaf":
@@ -137,8 +142,8 @@ function phaseStatus(
 
 export function CategoryMemoryBTree() {
   const [mode, setMode] = useState<ScanMode>("auto");
-  const [demoPhase, setDemoPhase] = useState<DemoPhase>("probe");
-  const [leafProbeIndex, setLeafProbeIndex] = useState<number | null>(0);
+  const [demoPhase, setDemoPhase] = useState<DemoPhase>("select-branch");
+  const [leafProbeIndex, setLeafProbeIndex] = useState<number | null>(null);
   const [createdCategoryIds, setCreatedCategoryIds] = useState<string[]>([]);
   const [spawnedPhrases, setSpawnedPhrases] = useState<string[]>([]);
   const [spawnedKeywords, setSpawnedKeywords] = useState<string[]>([]);
@@ -203,7 +208,10 @@ export function CategoryMemoryBTree() {
       ? `phrase-${phrasesToShow.indexOf(selectedPhrase)}`
       : null;
 
-  const showLeafLevel = selectedPage !== null;
+  const showLeafLevel =
+    mode === "manual"
+      ? selectedPage !== null
+      : selectedPage !== null && demoPhase !== "select-branch";
   const showPhraseLevel =
     mode === "manual"
       ? selectedCategory !== undefined
@@ -235,7 +243,14 @@ export function CategoryMemoryBTree() {
       return;
     }
 
+    const delay = demoPhase === "probe" ? PROBE_HOP_MS : LEVEL_HOLD_MS;
     const timer = window.setTimeout(() => {
+      if (demoPhase === "select-branch") {
+        setLeafProbeIndex(0);
+        setDemoPhase("probe");
+        return;
+      }
+
       if (demoPhase === "probe") {
         const nextIndex = (leafProbeIndex ?? 0) + 1;
         if (nextIndex < initialLeafCount) {
@@ -267,7 +282,7 @@ export function CategoryMemoryBTree() {
         setDemoPhase("done");
         setMode("complete");
       }
-    }, LEVEL_HOLD_MS);
+    }, delay);
 
     return () => window.clearTimeout(timer);
   }, [demoPhase, initialLeafCount, leafProbeIndex, mode]);
@@ -449,8 +464,8 @@ export function CategoryMemoryBTree() {
     setCreatedCategoryIds([]);
     setSpawnedPhrases([]);
     setSpawnedKeywords([]);
-    setLeafProbeIndex(0);
-    setDemoPhase("probe");
+    setLeafProbeIndex(null);
+    setDemoPhase("select-branch");
     leafLevelOpenedRef.current = false;
     setMode("auto");
     const reducedMotion = window.matchMedia(
