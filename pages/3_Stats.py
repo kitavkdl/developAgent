@@ -29,6 +29,13 @@ def get_db():
 
 
 db = get_db()
+if not hasattr(db, "reuse_savings_summary"):
+    # 배포 직후 st.cache_resource가 (get_db() 자체 코드는 안 바뀌어) 캐시를
+    # 무효화하지 않고 코드 변경 전에 만들어진 낡은 Db 객체를 그대로 들고 있을 수
+    # 있다 — 캐시를 비우고 최신 클래스로 즉시 재생성해 재부팅 없이도 자가 치유한다.
+    get_db.clear()
+    db = get_db()
+
 kpi = db.kpi_summary()
 
 c1, c2, c3, c4 = st.columns(4)
