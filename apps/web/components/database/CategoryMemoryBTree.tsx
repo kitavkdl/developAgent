@@ -189,6 +189,7 @@ export function CategoryMemoryBTree() {
     ];
   }, [selectedPage, createdCategoryIds]);
 
+  const visibleLeafKey = visibleLeafIds.join("|");
   const initialLeafCount = selectedPage?.categoryIds.length ?? 0;
 
   const phrasesToShow = useMemo(() => {
@@ -202,6 +203,8 @@ export function CategoryMemoryBTree() {
     }
     return spawnedKeywords;
   }, [mode, selectedPhrase, spawnedKeywords]);
+
+  const keywordsKey = keywordsToShow.join("|");
 
   const selectedPhraseNodeId =
     selectedPhrase && phrasesToShow.includes(selectedPhrase)
@@ -392,11 +395,15 @@ export function CategoryMemoryBTree() {
       }
 
       const edges = links.flatMap(({ parentId, childId, state }) => {
+        const escape =
+          typeof CSS !== "undefined" && typeof CSS.escape === "function"
+            ? CSS.escape
+            : (value: string) => value.replace(/"/g, '\\"');
         const parent = treeElement.querySelector<HTMLElement>(
-          `[data-edge-node="${CSS.escape(parentId)}"]`,
+          `[data-edge-node="${escape(parentId)}"]`,
         );
         const child = treeElement.querySelector<HTMLElement>(
-          `[data-edge-node="${CSS.escape(childId)}"]`,
+          `[data-edge-node="${escape(childId)}"]`,
         );
         if (!parent || !child) return [];
 
@@ -439,7 +446,7 @@ export function CategoryMemoryBTree() {
     };
   }, [
     demoPhase,
-    keywordsToShow,
+    keywordsKey,
     leafProbeIndex,
     mode,
     selectedCategoryId,
@@ -450,7 +457,7 @@ export function CategoryMemoryBTree() {
     showLeafLevel,
     showPhraseLevel,
     showTokenLevel,
-    visibleLeafIds,
+    visibleLeafKey,
   ]);
 
   function selectPage(pageId: string) {
