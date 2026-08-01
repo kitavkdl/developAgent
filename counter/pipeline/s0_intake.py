@@ -90,10 +90,19 @@ def run_intake(source_type: str, payload, oai, settings, emitter) -> dict:
         )
     if source_type == "IMAGE":
         image_b64, mime = payload  # (base64 문자열, MIME 타입)
-        return oai.vision_structured(
+        result = oai.vision_structured(
             model=settings.model_intake, effort="low",
             system=prompts.INTAKE, image_b64=image_b64, mime=mime,
             schema_name="intake", schema=schemas.INTAKE_SCHEMA,
             emitter=emitter, stage="S0_INTAKE",
         )
+        # ocr_failed는 모델의 자기 신고다 — 스키마는 boolean이 온다는 것만 보장하지
+        # 그게 사실인지는 보장하지 않는다 (schemas.py 헤더, PRD N1). 한 줄도 못
+        # 읽었는데 false로 오면 ad.ocr_fallback_used에 "OCR 정상"이 기록되면서
+        # extracted_text만 비는 모순이 남으므로, 사실 판단은 코드가 한다.
+        # 반대 방향(텍스트가 있는데 true)은 덮어쓰지 않는다 — 글자가 잘리거나
+        # 흐려서 부분 실패를 신고한 정당한 경우가 프롬프트상 존재한다.
+        if not any(str(ln).strip() for ln in (result.get("raw_lines") or [])):
+            result["ocr_failed"] = True
+        return result
     raise ValueError(f"알 수 없는 source_type: {source_type}")

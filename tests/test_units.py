@@ -122,3 +122,43 @@ def test_liner_missing_date_stays_none():
                                                       "snippet": "s"}]})
     resp = _liner_with(handler).search("web", "q")
     assert resp.results[0].date is None  # 날짜 추측 금지
+
+
+# OCR 실패 플래그는 모델 자기 신고가 아니라 실제 추출 결과로 확정한다.
+# (ad.ocr_fallback_used가 "OCR 정상"인데 extracted_text만 비는 모순 방지)
+def _intake_image(vision_result):
+    from counter.pipeline.s0_intake import run_intake
+
+    class _Oai:
+        def vision_structured(self, **kw):
+            return dict(vision_result)
+
+    return run_intake("IMAGE", ("b64", "image/png"), _Oai(), Settings(), None)
+
+
+_INTAKE_BASE = {
+    "brand_name": None, "product_name": None, "product_context": "",
+    "observed_visual_claims": [], "uncertain_fragments": [], "is_advertisement": True,
+}
+
+
+def test_ocr_failed_forced_true_when_nothing_was_read():
+    out = _intake_image({**_INTAKE_BASE, "raw_lines": [], "ocr_failed": False})
+    assert out["ocr_failed"] is True
+
+
+def test_ocr_failed_forced_true_when_lines_are_blank():
+    out = _intake_image({**_INTAKE_BASE, "raw_lines": ["", "   "], "ocr_failed": False})
+    assert out["ocr_failed"] is True
+
+
+def test_ocr_failed_stays_false_when_text_was_read():
+    out = _intake_image({**_INTAKE_BASE, "raw_lines": ["누적 판매량 100만병"],
+                         "ocr_failed": False})
+    assert out["ocr_failed"] is False
+
+
+def test_ocr_failed_self_report_true_is_not_overridden():
+    """글자가 잘려 부분 실패를 신고한 경우 — 텍스트가 있어도 true를 유지한다."""
+    out = _intake_image({**_INTAKE_BASE, "raw_lines": ["누적 판매"], "ocr_failed": True})
+    assert out["ocr_failed"] is True
