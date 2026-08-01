@@ -1,0 +1,219 @@
+"""오케스트레이터 — S0~S6 전체를 소유한다.
+
+핵심 구조 원칙 (ARCHITECTURE §0): 오케스트레이션은 애플리케이션이 소유하고,
+LLM은 각 단계 안에서만 판단한다. 상태 전이는 counter/state.py의 표가 결정한다.
+이래야 재현 가능하고, 검색 예산을 통제할 수 있고, 판정 게이트를 강제할 수 있다.
+
+외부 계약 (BUILD_PLAN §1.1): run_job / get_job_state / submit_feedback 세 함수.
+Streamlit 페이지는 이 세 함수만 안다 — 파이프라인 로직을 UI와 분리해
+단계별 검증 게이트(B01~B11)를 독립적으로 테스트하기 위함.
+"""
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Literal
+
+from ..clients.liner import LinerClient
+from ..clients.openai_client import OpenAIClient
+from ..db import Db
+from ..events import TraceEmitter
+from ..settings import Settings, load_settings
+from ..state import JobState, StateMachine, derive_state
+from .s0_intake import run_intake
+from .s1_triage import run_triage
+from .s2a_router import run_router
+from .s2b_classifier import resolve_industry_category
+from .s3_cache import run_cache_check
+from .s4_hypothesis import run_hypothesis
+from .s5_search import run_search_and_evaluate
+from .s6_verdict import assemble_and_persist, persist_puffery
+
+
+class Pipeline:
+    """의존성(설정/DB/클라이언트)을 묶는다. 테스트에서 전부 주입 가능."""
+
+    def __init__(self, settings: Settings | None = None, db: Db | None = None,
+                 oai: OpenAIClient | None = None, liner: LinerClient | None = None):
+        self.settings = settings or load_settings()
+        self.db = db or Db(self.settings)
+        self.oai = oai or OpenAIClient(self.settings)
+        self.liner = liner or LinerClient(self.settings)
+
+    # ---- 계약 함수 1: run_job ----
+
+    def run_job(self, source_type: Literal["IMAGE", "URL", "TEXT"], payload) -> str:
+        """S0~S6 전체 실행 후 job_id 반환. 매 단계 trace_event INSERT.
+        사람 개입 지점은 없다 (PRD N2 — 입력 1회 → 출력까지 독립 수행)."""
+        job_id = uuid.uuid4()
+        emitter = TraceEmitter(self.db, job_id)
+        sm = StateMachine(JobState.INTAKE)
+        started = time.monotonic()
+
+        def deadline_exceeded() -> bool:
+            return time.monotonic() - started > self.settings.job_timeout_seconds
+
+        emitter.emit("job.created", {"source_type": source_type})
+        try:
+            # S0 — 범주어 없이는 반례 쿼리를 만들 수 없으므로 항상 최우선
+            intake = run_intake(source_type, payload, self.oai, self.settings, emitter)
+            emitter.emit("intake.completed", {k: v for k, v in intake.items()})
+
+            # S1 — PUFFERY 조기 종료 게이트. 여기서 걸러지면 검색 tool_call 0건 (N4)
+            sm.transition(JobState.TRIAGE)
+            claims = run_triage(intake, self.oai, self.settings, emitter)
+            for c in claims:
+                emitter.emit("claim.extracted", c)
+            emitter.emit("claim.triaged", {"count": len(claims),
+                                           "categories": [c["claim_category"] for c in claims]})
+
+            falsifiable = [c for c in claims if c["claim_category"] == "FALSIFIABLE"]
+            puffery = [c for c in claims if c["claim_category"] == "PUFFERY"]
+
+            if not falsifiable:
+                # 전부 PUFFERY/NOT_A_CLAIM → 검색 0회로 직행 종료 (ARCHITECTURE §2)
+                for c in puffery:
+                    persist_puffery(claim=c, oai=self.oai, db=self.db,
+                                    settings=self.settings, emitter=emitter)
+                sm.transition(JobState.COMPLETE)
+                emitter.emit("job.completed", {"reason": "no falsifiable claims",
+                                               "search_tool_calls": 0})
+                return str(job_id)
+
+            # PUFFERY 판정은 먼저 기록 (검색과 무관)
+            for c in puffery:
+                persist_puffery(claim=c, oai=self.oai, db=self.db,
+                                settings=self.settings, emitter=emitter)
+
+            sm.transition(JobState.CLASSIFYING)
+            # 상태 그래프(ARCHITECTURE §2)는 클레임 1건의 생애를 기술하므로,
+            # 클레임별로 독립 머신을 돌린다 (CLASSIFYING부터). job 레벨 머신은
+            # INTAKE→TRIAGE→CLASSIFYING까지의 공통 구간만 소유.
+            degraded_any = False
+            for claim in falsifiable:
+                claim_sm = StateMachine(JobState.CLASSIFYING)
+                degraded_any |= self._process_falsifiable_claim(
+                    claim, intake, emitter, claim_sm, deadline_exceeded
+                )
+
+            terminal = "job.degraded" if degraded_any else "job.completed"
+            emitter.emit(terminal, {"claims_processed": len(claims)})
+            return str(job_id)
+
+        except Exception as e:
+            if not emitter.terminated:
+                emitter.emit("job.failed", {"error": str(e)})
+            raise
+
+    def _process_falsifiable_claim(self, claim, intake, emitter, sm, deadline_exceeded) -> bool:
+        """FALSIFIABLE 클레임 1건 처리. 반환: DEGRADED 경유 여부."""
+        s = self.settings
+
+        # S2a/S2b — 논리적으로 병렬 분기 (서로 의존 없음). 단일 프로세스라 순차 실행하되
+        # 어느 쪽도 상대 결과를 입력으로 받지 않는다는 경계는 코드 구조로 유지.
+        route_out = run_router(claim, self.oai, s, emitter)
+        route = route_out["route"]
+        emitter.emit("route.decided", {"claim_text": claim["claim_text"], **route_out})
+
+        category, similarity, is_new, embedding = resolve_industry_category(
+            claim, intake, self.oai, self.db, s, emitter
+        )
+        emitter.emit("industry.classified", {
+            "category_code": category["code"], "category_label": category["label_ko"],
+            "similarity": similarity, "is_new": is_new,  # is_new=true는 UI에서 강조
+        })
+
+        # S3 — 결정론적 캐시 라우팅 (LLM 아님)
+        sm.transition(JobState.CACHE_CHECK)
+        decision, date_from, canonical = run_cache_check(
+            claim, category["id"], embedding, self.db, s
+        )
+        emitter.emit("cache.decision", {  # 히트여도 반드시 INSERT (재사용이 보여야 함)
+            "decision": decision, "date_from": date_from,
+            "canonical_id": canonical["id"] if canonical else None,
+            "reuse_count": canonical.get("reuse_count") if canonical else None,
+        })
+
+        if decision == "HIT":
+            sm.transition(JobState.SYNTHESIZING)  # 캐시 히트 → S4~S6 스킵
+            assemble_and_persist(
+                claim=claim, route=route, category_id=category["id"],
+                cache_decision="HIT", canonical=canonical, search_outcome=None,
+                required_match_fields={}, claim_type_row=None, embedding=embedding,
+                oai=self.oai, db=self.db, settings=s, emitter=emitter,
+                degraded_reason=None,
+            )
+            sm.transition(JobState.PERSISTING)
+            sm.transition(JobState.COMPLETE)
+            return False
+
+        # MISS / DELTA / REVERIFY → S4 가설 → S5 검색·평가
+        claim_type_row = self.db.get_claim_type(claim["claim_type_code"])
+        falsifier = self.db.get_falsifier_spec(claim["claim_type_code"])
+        required = falsifier["required_match_fields"] if falsifier else {
+            "scope_match": True, "metric_match": True,
+            "timeframe_match": True, "target_match": True,  # 스펙 없으면 가장 엄격하게
+        }
+        delta_mode = decision == "DELTA"
+
+        sm.transition(JobState.RESEARCHING)
+        _hypotheses, queries = run_hypothesis(
+            claim, route, claim_type_row, self.oai, s, emitter,
+            delta_mode=delta_mode, date_from=date_from,
+        )
+        outcome = run_search_and_evaluate(
+            claim=claim, route=route, queries=queries, claim_type_row=claim_type_row,
+            required_match_fields=required, liner=self.liner, oai=self.oai,
+            db=self.db, settings=s, emitter=emitter,
+            deadline_check=deadline_exceeded,
+            date_from=date_from if delta_mode else None,
+        )
+
+        degraded = bool(outcome["degraded_reason"]) or not outcome["any_search_succeeded"]
+        if not outcome["any_search_succeeded"] and not outcome["degraded_reason"]:
+            outcome["degraded_reason"] = "검색 프로바이더 응답 없음 (타임아웃/오류)"
+        if degraded:
+            # 무한 스피너 금지 — 프로바이더 장애든 시간 예산 소진이든 동일한
+            # DEGRADED 경로로 결정론적 종료 (D-13, T6/T11)
+            sm.transition(JobState.DEGRADED)
+            sm.transition(JobState.SYNTHESIZING)
+        else:
+            sm.transition(JobState.EVALUATING)
+            sm.transition(JobState.SYNTHESIZING)
+
+        assemble_and_persist(
+            claim=claim, route=route, category_id=category["id"],
+            cache_decision=decision, canonical=canonical, search_outcome=outcome,
+            required_match_fields=required, claim_type_row=claim_type_row,
+            embedding=embedding, oai=self.oai, db=self.db, settings=s,
+            emitter=emitter, degraded_reason=outcome["degraded_reason"],
+        )
+        sm.transition(JobState.PERSISTING)
+        sm.transition(JobState.COMPLETE)
+        return degraded
+
+    # ---- 계약 함수 2: get_job_state ----
+
+    def get_job_state(self, job_id) -> str | None:
+        events = self.db.fetch_trace_events(job_id, after_seq=0)
+        state = derive_state(events)
+        return state.value if state else None
+
+    # ---- 계약 함수 3: submit_feedback ----
+
+    def submit_feedback(self, verdict_id: str, reaction: Literal["AGREE", "DISPUTE"],
+                        note: str | None = None) -> None:
+        """판정이 이미 출력된 뒤 비동기 수집 (PRD N2 — 응답을 절대 블로킹하지 않음.
+        Streamlit에서 결과 렌더링 후 눌리는 버튼이라는 게 이 규칙을 구조적으로 강제).
+        dispute가 (건수 AND 비율) 임계 초과 시 needs_reverification=true →
+        다음 조회 때 S3가 풀 재검색(REVERIFY)으로 보낸다."""
+        self.db.insert_feedback(verdict_id, reaction, note)
+        verdict = self.db.get_verdict(verdict_id)
+        if verdict and verdict.get("canonical_id"):
+            self.db.bump_canonical_feedback(verdict["canonical_id"], reaction)
+            if reaction == "DISPUTE":
+                self.db.apply_dispute_policy(
+                    verdict["canonical_id"],
+                    self.settings.dispute_count_threshold,
+                    self.settings.dispute_ratio_threshold,
+                )
