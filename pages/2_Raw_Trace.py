@@ -20,6 +20,7 @@ from counter.ui_theme import (
     plain_chip,
     plotly_layout,
     provider_chip,
+    render_snake,
 )
 
 st.set_page_config(page_title="COUNTER — Raw Trace", layout="wide")
@@ -94,6 +95,10 @@ if events:
     plotly_layout(fig2, height=340)
     st.plotly_chart(fig2, use_container_width=True, theme=None)
 
+    st.markdown('<div class="ctr-panel-header">파이프라인 처리 순서 (노드 클릭 시 상세로 이동)</div>',
+                unsafe_allow_html=True)
+    st.markdown(render_snake(events), unsafe_allow_html=True)
+
 st.divider()
 
 for ev in events:
@@ -105,7 +110,7 @@ for ev in events:
     highlight = payload.get("is_new") if isinstance(payload, dict) else False
 
     st.markdown(
-        f'<div class="ctr-trace {"is-raw" if is_raw else ""}">'
+        f'<div id="trace-{ev["seq"]}" class="ctr-trace {"is-raw" if is_raw else ""}">'
         f'<div class="ctr-trace-meta">'
         f'<span>#{ev["seq"]:03d}</span> {provider_chip(provider)} '
         f'<strong style="color:#e7ebe8;text-transform:none;letter-spacing:0;">{ev["event_type"]}</strong>'
