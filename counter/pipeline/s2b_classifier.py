@@ -23,9 +23,23 @@ def resolve_industry_category(claim: dict, intake_result: dict, oai, db, setting
     분류 실패 시 기본 카테고리로 폴백하고 파이프라인은 계속 진행 (ARCHITECTURE §7).
     """
     text = f"{intake_result.get('product_context') or ''} {claim['claim_text']}".strip()
-    embedding = oai.embed(claim["normalized_text"])
+    normalized = claim["normalized_text"]
+
+    # 두 임베딩(canonical 매칭 키 / 카테고리 매칭용 맥락문)은 서로 독립이므로
+    # 한 번의 요청으로 함께 받는다 — 순차 호출은 왕복만 두 배가 된다.
     try:
-        context_embedding = oai.embed(text) if text != claim["normalized_text"] else embedding
+        if text and text != normalized:
+            embedding, context_embedding = oai.embed_many([normalized, text])
+        else:
+            embedding = context_embedding = oai.embed(normalized)
+    except Exception:
+        # normalized 임베딩은 canonical 매칭 키라 없으면 진행 자체가 불가능하므로
+        # 단건으로 한 번 더 시도하고(여기서도 실패하면 전파), 맥락문 임베딩만
+        # 실패한 경우에는 기존과 같이 기본 카테고리로 폴백한다.
+        embedding = oai.embed(normalized)
+        return db.get_default_category(), None, False, embedding
+
+    try:
         top = db.nearest_categories(context_embedding, k=5)
         if top and float(top[0]["similarity"]) >= settings.category_reuse_threshold:
             return top[0], float(top[0]["similarity"]), False, embedding

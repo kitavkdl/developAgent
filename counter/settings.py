@@ -13,13 +13,23 @@ import os
 from dataclasses import dataclass, field
 
 
-def _secrets() -> dict:
-    try:
-        import streamlit as st  # noqa: PLC0415
+_SECRETS_CACHE: dict | None = None
 
-        return dict(st.secrets)
-    except Exception:
-        return {}
+
+def _secrets() -> dict:
+    # load_settings()는 _get*을 20회 넘게 부르고, Raw Trace는 폴링 주기마다
+    # 스크립트를 통째로 재실행하며 그때마다 load_settings()를 부른다 —
+    # 매번 st.secrets를 dict로 복사할 이유가 없다. secrets는 프로세스 수명 동안
+    # 바뀌지 않으므로 한 번만 읽는다.
+    global _SECRETS_CACHE
+    if _SECRETS_CACHE is None:
+        try:
+            import streamlit as st  # noqa: PLC0415
+
+            _SECRETS_CACHE = dict(st.secrets)
+        except Exception:
+            _SECRETS_CACHE = {}
+    return _SECRETS_CACHE
 
 
 def bridge_secrets_to_env() -> None:
@@ -81,6 +91,10 @@ class Settings:
     # "동시에 대기 중일 수 있는 최대 개수"의 상한일 뿐이다.
     max_parallel_searches: int = 4
     max_parallel_evaluations: int = 4
+    # 한 광고에 FALSIFIABLE 클레임이 여러 개면 클레임끼리도 동시에 처리한다 —
+    # 클레임 간에는 공유 상태가 없다(각자 독립 StateMachine). LINER 호출은
+    # liner_qps 리미터가 여전히 전역 직렬화하므로 실제 이득은 LLM 구간에서 난다.
+    max_parallel_claims: int = 3
 
     # OpenAI 모델 배정 (MODELS_AND_APIS §2.2)
     model_intake: str = "gpt-5.6-terra"
@@ -99,6 +113,11 @@ class Settings:
     category_reuse_threshold: float = 0.75
     canonical_threshold: float = 0.85
     trace_poll_interval_seconds: float = 1.0
+    # Neon 유휴 끊김 감지용 헬스체크(SELECT 1)를 매 쿼리마다 돌리면 모든 DB 작업이
+    # 왕복 2회가 된다 (job 1건에 DB 작업이 60~90회 — 전부 두 배). 마지막 성공
+    # 이후 이 시간이 지났을 때만 확인한다. Neon scale-to-zero는 분 단위라
+    # 20초면 콜드스타트 감지에 충분하다.
+    db_health_probe_interval_seconds: float = 20.0
 
     extras: dict = field(default_factory=dict)
 
@@ -116,6 +135,7 @@ def load_settings() -> Settings:
         liner_qps=_get_float("LINER_QPS", 1.0),
         max_parallel_searches=_get_int("MAX_PARALLEL_SEARCHES", 4),
         max_parallel_evaluations=_get_int("MAX_PARALLEL_EVALUATIONS", 4),
+        max_parallel_claims=_get_int("MAX_PARALLEL_CLAIMS", 3),
         model_intake=_get("OPENAI_MODEL_INTAKE", "gpt-5.6-terra"),
         model_triage=_get("OPENAI_MODEL_TRIAGE", "gpt-5.6-terra"),
         model_router=_get("OPENAI_MODEL_ROUTER", "gpt-5.6-luna"),
@@ -130,4 +150,5 @@ def load_settings() -> Settings:
         category_reuse_threshold=_get_float("CATEGORY_REUSE_THRESHOLD", 0.75),
         canonical_threshold=_get_float("CANONICAL_THRESHOLD", 0.85),
         trace_poll_interval_seconds=_get_float("TRACE_POLL_INTERVAL_SECONDS", 1.0),
+        db_health_probe_interval_seconds=_get_float("DB_HEALTH_PROBE_INTERVAL_SECONDS", 20.0),
     )

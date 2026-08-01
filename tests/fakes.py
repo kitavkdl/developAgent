@@ -298,7 +298,10 @@ class FakeOpenAI:
                                emitter=kw.get("emitter"), stage=kw.get("stage"))
 
     def embed(self, text):
-        return [0.1, 0.2, 0.3]
+        return self.embed_many([text])[0]
+
+    def embed_many(self, texts):
+        return [[0.1, 0.2, 0.3] for _ in texts]
 
 
 class FakeLiner:

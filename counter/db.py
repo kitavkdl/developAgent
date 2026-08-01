@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from typing import Any
@@ -35,6 +36,9 @@ class Db:
             raise RuntimeError("DATABASE_URL이 설정되지 않았습니다 (.streamlit/secrets.toml 참조)")
         self._dsn = settings.database_url
         self._conn = None
+        self._probe_interval = getattr(
+            settings, "db_health_probe_interval_seconds", 20.0)
+        self._last_ok = 0.0  # 마지막으로 이 커넥션에서 쿼리가 성공한 시각(monotonic)
         # S5 검색/평가가 여러 스레드에서 동시에 이 인스턴스를 쓸 수 있음(같은 job
         # worker_db를 공유) — 단일 psycopg2 커넥션은 동시 실행을 지원하지 않으므로
         # cursor() 사용 구간 전체를 직렬화한다. 느린 건 LINER/OpenAI 네트워크
@@ -45,14 +49,23 @@ class Db:
         if self._conn is not None and not self._conn.closed:
             # Neon scale-to-zero 콜드스타트/유휴 끊김은 서버 쪽에서 조용히 커넥션을
             # 끊으므로 conn.closed로는 감지 안 됨 → 가벼운 헬스체크로 선제 확인 (M7).
+            #
+            # 단, 이 헬스체크를 매 쿼리마다 돌리면 모든 DB 작업이 네트워크 왕복
+            # 2회가 된다 — job 1건이 trace_event까지 포함해 DB를 60~90회 치므로
+            # 그만큼의 왕복이 통째로 처리 시간에 얹힌다. 끊김은 "유휴" 상태에서만
+            # 생기므로, 마지막 성공 이후 실제로 유휴였을 때만 확인한다.
+            if time.monotonic() - self._last_ok < self._probe_interval:
+                return self._conn
             try:
                 with self._conn.cursor() as probe:
                     probe.execute("SELECT 1")
+                self._last_ok = time.monotonic()
                 return self._conn
             except (psycopg2.OperationalError, psycopg2.InterfaceError):
                 self._conn = None
         self._conn = psycopg2.connect(self._dsn)
         self._conn.autocommit = True
+        self._last_ok = time.monotonic()
         return self._conn
 
     def close(self) -> None:
@@ -78,8 +91,15 @@ class Db:
             try:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     yield cur
-            except psycopg2.OperationalError:
+                # 방금 이 커넥션으로 쿼리가 실제로 성공했다 — 다음 호출은 유휴가
+                # 아니었음이 증명되므로 헬스체크를 건너뛸 수 있다.
+                self._last_ok = time.monotonic()
+            except (psycopg2.OperationalError, psycopg2.InterfaceError):
+                # 커넥션 자체가 죽은 경우 — 무효화해서 다음 호출이 재연결하게 한다.
+                # (드문 경로라 여기서 재시도하지 않는다: @contextmanager 제너레이터는
+                #  정확히 한 번만 yield해야 해서 이 자리에서 재실행이 불가능하다.)
                 self._conn = None
+                self._last_ok = 0.0
                 raise
 
     # ---- 마이그레이션 ----

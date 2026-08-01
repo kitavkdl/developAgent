@@ -89,7 +89,14 @@ class OpenAIClient:
                                emitter=emitter, stage=stage)
 
     def embed(self, text: str) -> list[float]:
+        return self.embed_many([text])[0]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        """여러 텍스트를 한 번의 요청으로 임베딩 — embeddings API는 input에 배열을
+        받는다. 서로 독립인 임베딩을 순차로 부르면 왕복 횟수만 늘어난다.
+        응답은 index 기준으로 정렬해 입력 순서와의 대응을 보장한다."""
         resp = self.client.embeddings.create(
-            model=self._settings.model_embedding, input=text
+            model=self._settings.model_embedding, input=texts
         )
-        return list(resp.data[0].embedding)
+        ordered = sorted(resp.data, key=lambda d: d.index)
+        return [list(d.embedding) for d in ordered]

@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 from ..clients.liner import LinerClient
 from ..clients.openai_client import OpenAIClient
-from ..db import Db, new_id
+from ..db import Db, new_id, normalized_hash
 from ..events import TraceEmitter
 from ..settings import Settings, load_settings
 from ..state import JobState, StateMachine, derive_state
@@ -70,6 +71,10 @@ class Pipeline:
         worker_db = Db(self.settings)
         emitter = TraceEmitter(worker_db, job_id)
         emitter.emit("job.created", {"source_type": source_type})
+        # trace 쓰기는 비동기지만 이 한 행만은 반환 전에 확정한다 — UI가 곧바로
+        # job_id로 이벤트를 조회하므로, 아직 비어 있으면 "알 수 없음" 상태가
+        # 한 폴링 주기 동안 노출된다.
+        emitter.flush()
         worker = Pipeline(settings=self.settings, oai=self.oai, liner=self.liner, db=worker_db)
 
         def _run() -> None:
@@ -142,12 +147,9 @@ class Pipeline:
             sm.transition(JobState.CLASSIFYING)
             # 상태 그래프(ARCHITECTURE §2)는 클레임 1건의 생애를 기술하므로,
             # 클레임별로 독립 머신을 돌린다 (CLASSIFYING부터).
-            degraded_any = False
-            for claim in falsifiable:
-                claim_sm = StateMachine(JobState.CLASSIFYING)
-                degraded_any |= self._process_falsifiable_claim(
-                    claim, intake, job_id, emitter, claim_sm, deadline_exceeded
-                )
+            degraded_any = self._process_falsifiable_claims(
+                falsifiable, intake, job_id, emitter, deadline_exceeded
+            )
 
             terminal = "job.degraded" if degraded_any else "job.completed"
             emitter.emit(terminal, {"claims_processed": len(claims)})
@@ -157,21 +159,87 @@ class Pipeline:
             if not emitter.terminated:
                 emitter.emit("job.failed", {"error": str(e)})
             raise
+        finally:
+            # writer 스레드 정리 — 종료 이벤트 emit이 이미 flush했으므로 남은 건
+            # 스레드 종료뿐이다. 호출자가 커넥션을 닫기 전에 실행돼야 한다.
+            emitter.close()
+
+    def _process_falsifiable_claims(self, falsifiable, intake, job_id, emitter,
+                                    deadline_exceeded) -> bool:
+        """FALSIFIABLE 클레임들을 처리하고 DEGRADED 경유 여부를 반환.
+
+        클레임끼리는 공유 상태가 없으므로(각자 독립 StateMachine·claim_id) 동시에
+        돌린다 — 클레임 N개짜리 광고의 대기 시간이 N배가 되던 구조를 없앤다.
+        단, normalized_text가 같은 클레임들은 같은 canonical을 만들거나 찾는
+        후보라 동시 실행 시 canonical이 중복 생성될 수 있다 (claim_canonical에는
+        (industry_category_id, claim_hash) UNIQUE 제약이 없고 조회용 인덱스만
+        있다). 해시로 묶어 같은 묶음은 순차로, 서로 다른 묶음만 병렬로 돌린다.
+
+        LINER 호출은 liner_qps 리미터가 전역으로 직렬화하므로 검색 자체는
+        빨라지지 않는다 — 줄어드는 건 LLM 구간(라우터/분류/가설/평가/리포터)이다.
+        """
+        lanes: dict[str, list[dict]] = {}
+        for claim in falsifiable:
+            lanes.setdefault(normalized_hash(claim["normalized_text"]), []).append(claim)
+        lane_list = list(lanes.values())
+
+        if len(lane_list) == 1:
+            return self._run_claim_lane(lane_list[0], intake, job_id, emitter,
+                                        deadline_exceeded)
+
+        degraded_any = False
+        first_error: BaseException | None = None
+        with ThreadPoolExecutor(
+            max_workers=min(len(lane_list), max(1, self.settings.max_parallel_claims)),
+            thread_name_prefix=f"claim-{str(job_id)[:8]}",
+        ) as ex:
+            futures = [
+                ex.submit(self._run_claim_lane, lane, intake, job_id, emitter,
+                          deadline_exceeded)
+                for lane in lane_list
+            ]
+            for fut in futures:
+                try:
+                    degraded_any |= fut.result()
+                except BaseException as e:  # noqa: BLE001 — 첫 예외를 대표로 올린다
+                    if first_error is None:
+                        first_error = e
+        if first_error is not None:
+            # 순차 시절엔 첫 실패가 나머지 클레임을 중단시켰지만, 이미 발사된
+            # 다른 레인은 끝까지 간 뒤 여기서 대표 예외를 올린다 (종료 이벤트는
+            # 여전히 정확히 1회 — job.failed 경로는 호출자가 담당).
+            raise first_error
+        return degraded_any
+
+    def _run_claim_lane(self, lane: list[dict], intake, job_id, emitter,
+                        deadline_exceeded) -> bool:
+        degraded = False
+        for claim in lane:
+            degraded |= self._process_falsifiable_claim(
+                claim, intake, job_id, emitter,
+                StateMachine(JobState.CLASSIFYING), deadline_exceeded,
+            )
+        return degraded
 
     def _process_falsifiable_claim(self, claim, intake, job_id, emitter, sm,
                                    deadline_exceeded) -> bool:
         """FALSIFIABLE 클레임 1건 처리. 반환: DEGRADED 경유 여부."""
         s = self.settings
 
-        # S2a/S2b — 논리적으로 병렬 분기 (서로 의존 없음). 단일 프로세스라 순차 실행하되
-        # 어느 쪽도 상대 결과를 입력으로 받지 않는다는 경계는 코드 구조로 유지.
-        route_out = run_router(claim, self.oai, s, emitter)
+        # S2a/S2b — 논리적으로 병렬 분기 (서로 의존 없음). 어느 쪽도 상대 결과를
+        # 입력으로 받지 않으므로 실제로도 동시에 띄운다 — 순차로 두면 서로 무관한
+        # LLM 왕복 두 번이 클레임마다 그대로 더해진다.
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="s2") as ex:
+            f_route = ex.submit(run_router, claim, self.oai, s, emitter)
+            f_category = ex.submit(resolve_industry_category,
+                                   claim, intake, self.oai, self.db, s, emitter)
+            route_out = f_route.result()
+            category, similarity, is_new, embedding = f_category.result()
+
+        # 이벤트는 병렬 실행과 무관하게 항상 route → industry 순으로 남긴다
+        # (Raw Trace의 단계 순서가 실행 스케줄링에 따라 흔들리지 않도록).
         route = route_out["route"]
         emitter.emit("route.decided", {"claim_text": claim["claim_text"], **route_out})
-
-        category, similarity, is_new, embedding = resolve_industry_category(
-            claim, intake, self.oai, self.db, s, emitter
-        )
         emitter.emit("industry.classified", {
             "category_id": category["category_id"], "label": category["label"],
             "similarity": similarity, "is_new": is_new,  # is_new=true는 UI에서 강조
