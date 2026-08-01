@@ -725,11 +725,14 @@ export function CategoryMemoryBTree() {
                 return (
                   <li
                     key={`${categoryId}-${isCreated ? "created" : "seed"}`}
+                    className={isCreated ? styles.spawnSlot : undefined}
                     style={cascadeStyle(index)}
                   >
                     <button
                       type="button"
                       className={`${styles.dbPage} ${styles.leafPage} ${
+                        isCreated ? styles.spawnNode : ""
+                      } ${
                         isCurrent
                           ? selectedPhrase
                             ? styles.nodeVisited
@@ -741,16 +744,24 @@ export function CategoryMemoryBTree() {
                       data-edge-parent={selectedPage.pageId}
                       data-edge-node={categoryId}
                     >
-                      <span className={styles.pageChrome}>
+                      <span
+                        className={`${styles.pageChrome} ${
+                          isCreated ? styles.spawnText : ""
+                        }`}
+                      >
                         <span>
                           {isCreated ? "NEW LEAF" : "LEAF SLOT"}{" "}
                           {String(index).padStart(2, "0")}
                         </span>
                         <code>tid ({index + 11},1)</code>
                       </span>
-                      <strong>{category.label}</strong>
-                      <code>{category.categoryId}</code>
-                      <small>
+                      <strong className={isCreated ? styles.spawnText : undefined}>
+                        {category.label}
+                      </strong>
+                      <code className={isCreated ? styles.spawnText : undefined}>
+                        {category.categoryId}
+                      </code>
+                      <small className={isCreated ? styles.spawnText : undefined}>
                         created_by={isCreated ? "runtime" : category.createdBy}{" "}
                         · centroid=vector(1536)
                       </small>
@@ -785,11 +796,12 @@ export function CategoryMemoryBTree() {
                   return (
                     <li
                       key={`spawn-phrase-${phrase}`}
+                      className={styles.spawnSlot}
                       style={cascadeStyle(index)}
                     >
                       <button
                         type="button"
-                        className={`${styles.payloadRecord} ${
+                        className={`${styles.payloadRecord} ${styles.spawnNode} ${
                           isSelected
                             ? selectedKeyword
                               ? styles.nodeVisited
@@ -801,11 +813,11 @@ export function CategoryMemoryBTree() {
                         data-edge-parent={selectedCategory.categoryId}
                         data-edge-node={`phrase-${index}`}
                       >
-                        <span>
+                        <span className={styles.spawnText}>
                           vector probe {String(index + 1).padStart(2, "0")}
                         </span>
-                        <strong>{phrase}</strong>
-                        <code>cosine candidate</code>
+                        <strong className={styles.spawnText}>{phrase}</strong>
+                        <code className={styles.spawnText}>cosine candidate</code>
                         {isSelected && !selectedKeyword ? (
                           <ScanCursor label="PAYLOAD PROBE" />
                         ) : null}
@@ -839,11 +851,12 @@ export function CategoryMemoryBTree() {
                   return (
                     <li
                       key={`spawn-token-${keyword}`}
+                      className={styles.spawnSlot}
                       style={cascadeStyle(index)}
                     >
                       <button
                         type="button"
-                        className={`${styles.tokenRecord} ${
+                        className={`${styles.tokenRecord} ${styles.spawnNode} ${
                           isSelected ? styles.nodeHit : ""
                         }`}
                         aria-pressed={isSelected}
@@ -851,8 +864,10 @@ export function CategoryMemoryBTree() {
                         data-edge-parent={selectedPhraseNodeId ?? ""}
                         data-edge-node={`token-${index}`}
                       >
-                        <span>{String(index).padStart(2, "0")}</span>
-                        <strong>{keyword}</strong>
+                        <span className={styles.spawnText}>
+                          {String(index).padStart(2, "0")}
+                        </span>
+                        <strong className={styles.spawnText}>{keyword}</strong>
                       </button>
                     </li>
                   );
