@@ -447,7 +447,7 @@ export function CategoryMemoryBTree() {
               <span>LEVEL 02 · LINKED LEAF PAGE</span>
               <p>
                 {selectedPage.pageId} · key range {selectedPage.keyRange} ·
-                sibling pointers remain at leaf level
+                sibling pointers remain at leaf level · 15-slot horizontal view
               </p>
             </header>
             <ol className={styles.leafChain}>
