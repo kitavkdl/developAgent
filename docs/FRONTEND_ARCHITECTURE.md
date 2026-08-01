@@ -176,11 +176,17 @@ centroid representative phrase → phrase keyword
   방문 완료·현재 probe 상태를 구분한다.
 - internal page는 key range를, category level은 정렬된 leaf record와 sibling pointer를
   보여 B+ tree의 index page/leaf page 구조를 시각화한다.
+- 데모 가독성을 위해 internal/leaf/payload/token 각 level은 fixture를 순환 참조한
+  frontend-only node 15개를 만든다. 각 node는 고유 demo ID를 사용하며 DB row,
+  migration, API payload에는 추가되지 않는다.
+- 네 sub level의 node는 기존 leaf card 크기로 통일하고, 한 줄 수평 목록이 viewport를
+  넘으면 해당 level 안에서만 가로 스크롤한다.
 - category leaf hit 뒤에는 해당 row의 실제 centroid phrase만 다음 semantic level에
   펼치고, phrase를 찾으면 token level에서 `앰플`을 최종 hit로 표시한다.
 - 사용자가 internal/category/phrase node를 누르면 자동 탐색을 즉시 중지하고 같은
   구조에서 수동 탐색으로 전환한다. Pause/Resume과 Replay도 제공한다.
-- 노드의 stable ID는 원격 `category_id`와 phrase/keyword slug 조합을 사용한다.
+- 실제 source identity는 원격 `category_id`와 phrase/keyword를 유지하고, 반복 표시
+  node는 frontend-only demo ID로 구분한다.
 - `created_by=seed|agent_generated`, centroid 존재 여부, category reuse threshold의
   역할을 설명하되, threshold `0.75`는 검증된 수치처럼 표시하지 않는다.
 - 브라우저는 Neon에 직접 연결하지 않는다. 현재 화면은 원격 main의 seed fixture를
