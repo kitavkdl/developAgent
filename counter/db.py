@@ -36,22 +36,33 @@ class Db:
         self._conn = None
 
     def _connection(self):
-        if self._conn is None or self._conn.closed:
-            self._conn = psycopg2.connect(self._dsn)
-            self._conn.autocommit = True
+        if self._conn is not None and not self._conn.closed:
+            # Neon scale-to-zero 콜드스타트/유휴 끊김은 서버 쪽에서 조용히 커넥션을
+            # 끊으므로 conn.closed로는 감지 안 됨 → 가벼운 헬스체크로 선제 확인 (M7).
+            try:
+                with self._conn.cursor() as probe:
+                    probe.execute("SELECT 1")
+                return self._conn
+            except (psycopg2.OperationalError, psycopg2.InterfaceError):
+                self._conn = None
+        self._conn = psycopg2.connect(self._dsn)
+        self._conn.autocommit = True
         return self._conn
 
     @contextmanager
     def cursor(self):
+        # @contextmanager 제너레이터는 정확히 한 번만 yield해야 하므로
+        # 여기서 재시도용 2차 yield를 두면 안 됨 (contextlib이
+        # "generator didn't stop after throw()"로 거부함). 재연결은
+        # _connection()의 선제 헬스체크가 담당하고, 여기서는 실행 중
+        # 끊기는 드문 케이스에 한해 커넥션만 무효화하고 그대로 전파한다.
         conn = self._connection()
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 yield cur
         except psycopg2.OperationalError:
-            # Neon scale-to-zero 콜드스타트/유휴 끊김 → 재연결 1회 (M7)
             self._conn = None
-            with self._connection().cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                yield cur
+            raise
 
     # ---- 마이그레이션 ----
 
@@ -457,6 +468,16 @@ class Db:
             cur.execute(
                 "SELECT search_mode, COUNT(*) AS n, AVG(latency_ms) AS avg_latency_ms "
                 "FROM search_log GROUP BY 1"
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def search_status_breakdown(self) -> list[dict]:
+        """LINER 호출이 성공(success/empty)인지 실패(error/timeout)인지 —
+        candidate=0 원인이 '검색 실패'인지 '결과 없음'인지 즉시 구분하기 위함."""
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT status, COUNT(*) AS n, AVG(latency_ms) AS avg_latency_ms "
+                "FROM search_log GROUP BY 1 ORDER BY n DESC"
             )
             return [dict(r) for r in cur.fetchall()]
 

@@ -86,6 +86,7 @@ class Settings:
     model_guardrail: str = "gpt-5.6-luna"
     model_reporter: str = "gpt-5.6-terra"
     model_embedding: str = "text-embedding-3-small"
+    openai_timeout_seconds: float = 60.0  # SDK 기본(~600s) 대신 상한을 둬 무한 대기 방지
 
     # 임계값/예산 — 전부 미검증 추정치 (DECISIONS D-11, D-13)
     job_timeout_seconds: float = 270.0
@@ -118,6 +119,7 @@ def load_settings() -> Settings:
         model_guardrail=_get("OPENAI_MODEL_GUARDRAIL", "gpt-5.6-luna"),
         model_reporter=_get("OPENAI_MODEL_REPORTER", "gpt-5.6-terra"),
         model_embedding=_get("OPENAI_MODEL_EMBEDDING", "text-embedding-3-small"),
+        openai_timeout_seconds=_get_float("OPENAI_TIMEOUT_SECONDS", 60.0),
         job_timeout_seconds=_get_float("JOB_TIMEOUT_SECONDS", 270.0),
         category_reuse_threshold=_get_float("CATEGORY_REUSE_THRESHOLD", 0.75),
         canonical_threshold=_get_float("CANONICAL_THRESHOLD", 0.85),

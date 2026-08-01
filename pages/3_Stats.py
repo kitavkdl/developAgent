@@ -73,6 +73,15 @@ if modes:
 else:
     st.info("검색 로그가 아직 없습니다.")
 
+st.subheader("🩺 LINER 호출 상태별 (평가된 후보=0 원인 진단용)")
+st.caption("success/empty = LINER 응답은 정상 수신 (empty면 결과 문서 0건). "
+           "error/timeout = 요청 자체가 실패 (키/네트워크/엔드포인트 문제).")
+statuses = db.search_status_breakdown()
+if statuses:
+    st.dataframe(pd.DataFrame(statuses), hide_index=True)
+else:
+    st.info("검색 로그가 아직 없습니다.")
+
 st.subheader("🆕 에이전트가 즉석 생성한 카테고리 (Real-time Adaptability 증거)")
 cats = db.agent_categories()
 if cats:

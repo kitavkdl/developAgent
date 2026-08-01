@@ -30,7 +30,10 @@ class OpenAIClient:
         if self._client is None:
             from openai import OpenAI  # noqa: PLC0415 — 키 없이도 앱이 떠야 하므로 지연 import
 
-            self._client = OpenAI(api_key=self._settings.openai_api_key)
+            # SDK 기본 타임아웃(약 600s)에 맡기면 vision 등 느린 호출이 무기한 멈춘
+            # 것처럼 보이므로 (Streamlit 스피너가 안 끝남) 명시적으로 상한을 둔다.
+            self._client = OpenAI(api_key=self._settings.openai_api_key,
+                                  timeout=self._settings.openai_timeout_seconds)
         return self._client
 
     def structured(self, *, model: str, effort: str, system: str, user: Any,
