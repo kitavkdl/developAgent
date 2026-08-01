@@ -231,6 +231,11 @@ class Db:
                 (verdict_id, reaction, note),
             )
 
+    def fetch_verdicts(self, job_id) -> list[dict]:
+        with self.cursor() as cur:
+            cur.execute("SELECT * FROM verdict WHERE job_id = %s ORDER BY created_at", (job_id,))
+            return [dict(r) for r in cur.fetchall()]
+
     def get_verdict(self, verdict_id: str) -> dict | None:
         with self.cursor() as cur:
             cur.execute("SELECT * FROM verdict WHERE id = %s", (verdict_id,))
