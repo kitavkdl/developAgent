@@ -194,8 +194,8 @@ export const CATEGORY_INDEX_PAGES: CategoryIndexPage[] = [
     blockAddress: "0x0118",
     label: "Beauty",
     keyRange: "Beauty",
+    // Phase2: 뷰티 leaf is created at runtime after the rightmost probe.
     categoryIds: [
-      "BEAUTY_PERSONAL_CARE",
       "DEMO_SKINCARE",
       "DEMO_MAKEUP",
       "DEMO_HAIR",
@@ -303,6 +303,9 @@ export const DEMO_LOOKUP = {
   keyword: "앰플",
 } as const;
 
+/** Runtime-created leaf appended after L2 rightmost probe (phase2). */
+export const DEMO_CREATED_CATEGORY_ID = DEMO_LOOKUP.categoryId;
+
 export function categoryById(categoryId: string) {
   return INDUSTRY_CATEGORY_SEEDS.find(
     (category) => category.categoryId === categoryId,
@@ -310,9 +313,16 @@ export function categoryById(categoryId: string) {
 }
 
 export function pageForCategory(categoryId: string) {
-  return CATEGORY_INDEX_PAGES.find((page) =>
+  const found = CATEGORY_INDEX_PAGES.find((page) =>
     page.categoryIds.includes(categoryId),
   );
+  if (found) return found;
+  if (categoryId === DEMO_CREATED_CATEGORY_ID) {
+    return CATEGORY_INDEX_PAGES.find(
+      (page) => page.pageId === DEMO_LOOKUP.branchId,
+    );
+  }
+  return undefined;
 }
 
 export function phraseKeywords(phrase: string): string[] {

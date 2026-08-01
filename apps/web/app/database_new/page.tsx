@@ -1,38 +1,37 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CategoryMemoryBTree } from "@/components/database/CategoryMemoryBTree";
+import { CategoryMemoryBTree } from "@/components/database-new/CategoryMemoryBTree";
 import styles from "./database.module.css";
 
 export const metadata: Metadata = {
-  title: "COUNTER — AI Index Scan",
+  title: "COUNTER — AI Index Scan · Phase2",
   description:
-    "Automatic B+ tree inspired traversal of COUNTER's category memory.",
+    "Phase2 miss-and-create traversal of COUNTER's category memory demo.",
 };
 
-export default function DatabasePage() {
+export default function DatabaseNewPage() {
   return (
     <main className={styles.page}>
       <div className={styles.atmosphere} aria-hidden="true" />
 
-      <nav className={styles.nav} aria-label="Category memory navigation">
+      <nav className={styles.nav} aria-label="Category memory phase2 navigation">
         <Link href="/" className={styles.wordmark}>
           COUNTER
         </Link>
         <div className={styles.navMeta}>
-          <span>DB / B+ TREE DEMO</span>
-          <Link href="/database_new">Phase2 →</Link>
-          <Link href="/">← Research workspace</Link>
+          <span>DB / PHASE2 CREATE-ON-MISS</span>
+          <Link href="/database">← Phase1 database</Link>
         </div>
       </nav>
 
       <header className={styles.intro}>
         <div>
-          <span>REMOTE MAIN · INDUSTRY_CATEGORY</span>
-          <strong>Watch the index resolve a category leaf.</strong>
+          <span>REMOTE MAIN · INDUSTRY_CATEGORY · PHASE2</span>
+          <strong>Watch the index create a missing leaf.</strong>
         </div>
         <p>
-          The deterministic demo follows Beauty → 뷰티 → 앰플, selecting one
-          node per level as child leaves appear.
+          Phase2 scans the Beauty leaf page, inserts 뷰티 on a miss, then
+          spawns one payload and one token node down the path.
         </p>
       </header>
 
