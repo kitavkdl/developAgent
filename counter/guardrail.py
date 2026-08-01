@@ -13,6 +13,15 @@ from typing import Callable
 
 BANNED = r"(허위|거짓|위법|불법|사기|처벌|고발|기만|과징금)"
 
+# UNVERIFIED 전용 — "반증도 근거도 없음"을 "그러니 진실"로 오독하게 만드는 결론형
+# 긍정 어휘. "사실"/"진실" 단독 어근은 정상적인 부정문("사실임을 확인한 것이
+# 아닙니다")에도 흔히 등장하므로 넣지 않고, 문맥상 결론임이 명확한 어형만 넣는다.
+POSITIVE_CONCLUSION = (
+    r"(사실일 (가능성이|확률이) (높|크)|사실로 보(인|입니다)|사실입니다|"
+    r"진실입니다|진실이다|믿을 수 있습니다|신뢰할 수 있습니다|"
+    r"안심하(고|셔도)|문제없습니다|틀림없습니다)"
+)
+
 SAFE_FALLBACK = (
     "판정 결과와 근거 URL을 확인해 주세요. 이 서비스는 법적 판단을 하지 않으며, "
     "공개 자료에서 반례 문서의 존재 여부만 보고합니다."
@@ -21,6 +30,10 @@ SAFE_FALLBACK = (
 
 def contains_banned(payload: dict) -> bool:
     return re.search(BANNED, json.dumps(payload, ensure_ascii=False)) is not None
+
+
+def contains_positive_conclusion(payload: dict) -> bool:
+    return re.search(POSITIVE_CONCLUSION, json.dumps(payload, ensure_ascii=False)) is not None
 
 
 def guard(payload: dict, regenerate_once: Callable[[dict], dict]) -> dict:

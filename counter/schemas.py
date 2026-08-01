@@ -106,6 +106,9 @@ EVALUATOR_SCHEMA = _obj({
     "timeframe_match": _bool,
     "target_match": _bool,
     "geography_match": _bool,
+    # true면 이 문서는 클레임을 반박하는 게 아니라 독립적으로 뒷받침한다 (CORROBORATED 후보).
+    # false(기본 가정)면 기존과 동일하게 반박 후보로 취급된다.
+    "supports_claim": _bool,
     "evidence_quote": _str,
     "is_syndicated_copy": _bool,
     "insufficient_access": _bool,

@@ -220,7 +220,7 @@ class FakeDb:
     def insert_verdict(self, *, claim_id, canonical_id, verdict_code, evidence_link,
                        evidence_date, search_count, confidence_source,
                        required_evidence_note, reasoning, assembled_by="agent"):
-        if verdict_code != "REFUTED" and evidence_link is not None:
+        if verdict_code not in ("CONTRADICTED", "CORROBORATED") and evidence_link is not None:
             raise AssertionError("chk_evidence_only_if_refuted 위반 (verdict)")
         vid = _nid("v")
         self.verdicts.append({
@@ -337,11 +337,15 @@ TRIAGE_PUFFERY = {
 }
 
 EVAL_ALL_MATCH = {"scope_match": True, "metric_match": True, "timeframe_match": True,
-                  "target_match": True, "geography_match": True,
+                  "target_match": True, "geography_match": True, "supports_claim": False,
                   "evidence_quote": "2019년 출시", "is_syndicated_copy": False,
                   "insufficient_access": False, "reasoning": "동일 범주·지표·시점"}
 
 EVAL_PARTIAL = {**EVAL_ALL_MATCH, "timeframe_match": False}
+
+# CORROBORATED 경로 테스트용 — 차원은 전부 일치하되 방향이 뒷받침
+EVAL_SUPPORTS = {**EVAL_ALL_MATCH, "supports_claim": True,
+                 "reasoning": "독립된 제3자 자료가 주장을 뒷받침"}
 
 DEFAULT_RESPONSES = {
     "S1_TRIAGE": TRIAGE_SUPERLATIVE,

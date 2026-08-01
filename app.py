@@ -35,9 +35,9 @@ if missing:
                f"(템플릿: `.streamlit/secrets.toml.example`)")
 
 VERDICT_BADGE = {
-    "REFUTED": ("🔴 REFUTED — 반례 발견", "red"),
-    "NOT_REFUTED": ("🟡 NOT_REFUTED — 실행한 쿼리에서 반례 미발견 (사실 확인 아님)", "orange"),
-    "PUBLIC_SUBSTANTIATION_NOT_FOUND": ("⚪ 공개 실증자료 미확인", "gray"),
+    "CONTRADICTED": ("🔴 CONTRADICTED — 반박 근거 발견", "red"),
+    "CORROBORATED": ("🔵 CORROBORATED — 뒷받침 근거 발견 (사실 확정은 아님)", "blue"),
+    "UNVERIFIED": ("⚪ UNVERIFIED — 탐색 범위 내 반증·뒷받침 근거 모두 미확인", "gray"),
     "PUFFERY": ("🟢 PUFFERY — 검증 대상 아님 (검색 미실행)", "green"),
 }
 
@@ -134,18 +134,32 @@ if job_id:
                 st.markdown(f"⚠️ 부분 증거로 종료: {v['required_evidence_note']}")
             st.write(v.get("reasoning") or "")
             if v.get("evidence_link"):
-                st.markdown(f"**반례 문서**: [{v['evidence_link']}]({v['evidence_link']}) "
+                doc_label = "뒷받침 문서" if v["verdict_code"] == "CORROBORATED" else "반박 근거 문서"
+                st.markdown(f"**{doc_label}**: [{v['evidence_link']}]({v['evidence_link']}) "
                             f"(발행일: {v.get('evidence_date') or '미상'})")
+
             queries = pipeline.db.fetch_executed_queries(v["claim_id"], v.get("canonical_id"))
+            # CONTRADICTED로 확정되지 않았어도 실제로 찾아서 검토한 문서를 노출 —
+            # UNVERIFIED가 "조사 안 함"이 아니라 "찾아봤지만 기준 미충족"이라는
+            # 걸 보여줘 오해를 줄인다.
+            evidence_docs = pipeline.db.fetch_evidence_reviewed(v["claim_id"], v.get("canonical_id"))
+
+            if v["verdict_code"] != "PUFFERY":
+                # 판정의 한계를 투명하게 — 이번 판정이 실제로 훑은 탐색 범위가
+                # 어디까지였는지 숫자로 보여준다. 특히 UNVERIFIED에서 중요:
+                # "안 찾아봤다"와 "이만큼 찾아봤는데도 없었다"는 전혀 다른 근거 강도다.
+                domains = sorted({d["source_domain"] for d in evidence_docs
+                                  if d.get("source_domain")})
+                scope = f"🔍 탐색 범위 — 실행 쿼리 {len(queries)}개 · 검토 문서 {len(evidence_docs)}건"
+                if domains:
+                    scope += f" · 출처 도메인 {len(domains)}개"
+                st.caption(scope)
+
             if queries:
                 with st.expander(f"실행한 쿼리 전문 ({len(queries)}개)"):
                     for q in queries:
                         st.code(q, language=None)
 
-            # REFUTED로 확정되지 않았어도 실제로 찾아서 검토한 문서를 노출 —
-            # NOT_REFUTED/PUBLIC_SUBSTANTIATION_NOT_FOUND가 "조사 안 함"이
-            # 아니라 "찾아봤지만 기준 미충족"이라는 걸 보여줘 오해를 줄인다.
-            evidence_docs = pipeline.db.fetch_evidence_reviewed(v["claim_id"], v.get("canonical_id"))
             if evidence_docs:
                 with st.expander(f"검토한 근거 문서 ({len(evidence_docs)}건)"):
                     field_labels = {
@@ -169,6 +183,8 @@ if job_id:
                                 f"{'✅' if check.get(k) else '❌'} {label}"
                                 for k, label in field_labels.items()
                             ))
+                            if check.get("supports_claim"):
+                                st.caption("↪️ 뒷받침(CORROBORATED) 방향으로 평가된 문서")
                             if check.get("is_syndicated_copy"):
                                 st.caption("⚠️ 동일 보도자료 재게재로 판단 — 독립 증거 아님")
                             if check.get("insufficient_access"):

@@ -417,7 +417,7 @@ class Db:
 
     def fetch_evidence_reviewed(self, claim_id: str, canonical_id: str | None = None) -> list[dict]:
         """이 클레임(또는 캐시 히트라면 그 canonical)을 위해 실제로 찾아서
-        평가한 문서 전부 — REFUTED 게이트를 통과 못 했어도 어떤 근거를
+        평가한 문서 전부 — CONTRADICTED 게이트를 통과 못 했어도 어떤 근거를
         검토했는지 투명하게 보여주기 위함 (판정이 '사실이다'로 오해되지
         않도록, 실제 조사 흔적을 노출)."""
         with self.cursor() as cur:
@@ -446,7 +446,8 @@ class Db:
             cur.execute(
                 "SELECT "
                 " (SELECT count(*) FROM verdict) AS total_verdicts, "
-                " (SELECT count(*) FROM verdict WHERE verdict_code = 'REFUTED') AS refuted, "
+                " (SELECT count(*) FROM verdict WHERE verdict_code = 'CONTRADICTED') AS contradicted, "
+                " (SELECT count(*) FROM verdict WHERE verdict_code = 'CORROBORATED') AS corroborated, "
                 " (SELECT count(*) FROM verdict WHERE verdict_code = 'PUFFERY') AS puffery, "
                 " (SELECT count(*) FROM verdict WHERE confidence_source = 'cached_reuse') AS cache_hits, "
                 " (SELECT count(*) FROM counterexample_candidate) AS candidates, "

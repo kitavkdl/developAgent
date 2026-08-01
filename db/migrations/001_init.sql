@@ -1,6 +1,7 @@
 -- COUNTER 스키마 — DB_SCHEMA.md §1 DDL 그대로 (멱등 적용을 위해 IF NOT EXISTS만 추가).
 -- 이 스키마가 지탱하는 3가지 (§0):
---  1. REFUTED 게이트 — falsifier_spec + counterexample_candidate.applicability_check
+--  1. 3단계 판정 게이트(CONTRADICTED/CORROBORATED/UNVERIFIED) —
+--     falsifier_spec + counterexample_candidate.applicability_check
 --  2. 캐시/중복탐지 — claim_canonical (업종 파티션 내에서만 매칭, D-08)
 --  3. 델타 서치 — last_searched_at vs last_seen_at 구분 + search_mode
 -- 원본과 다른 점 하나: claim.canonical_id FK 때문에 claim_canonical을 claim보다 먼저 생성.
@@ -167,11 +168,14 @@ CREATE TABLE IF NOT EXISTS verdict (
     assembled_by      TEXT NOT NULL, -- 항상 에이전트. 사람 값이 들어가면 버그
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- DB가 물리적으로 근거 없는 REFUTED를 거부 (T9)
-DO $$ BEGIN
-    ALTER TABLE verdict ADD CONSTRAINT chk_evidence_only_if_refuted
-      CHECK (verdict_code = 'REFUTED' OR evidence_link IS NULL);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- DB가 물리적으로 근거 없는 CONTRADICTED/CORROBORATED을 거부 (T9).
+-- ALTER TABLE ... DROP CONSTRAINT IF EXISTS 후 재생성 — 구 버전(verdict_code =
+-- 'REFUTED'만 허용)이 이미 적용된 배포 환경에서도 재실행 시 새 정의로 갱신되도록
+-- (DO $$ ... EXCEPTION WHEN duplicate_object 방식은 기존 정의를 그대로 둬버려
+-- CORROBORATED에 evidence_link를 못 넣는 채로 남는 문제가 있었다).
+ALTER TABLE verdict DROP CONSTRAINT IF EXISTS chk_evidence_only_if_refuted;
+ALTER TABLE verdict ADD CONSTRAINT chk_evidence_only_if_refuted
+  CHECK (verdict_code IN ('CONTRADICTED', 'CORROBORATED') OR evidence_link IS NULL);
 
 -- 판정 이후 비동기 수집. 절대 응답을 블로킹하지 않음 (PRD N2)
 CREATE TABLE IF NOT EXISTS feedback (

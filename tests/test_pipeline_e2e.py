@@ -28,13 +28,13 @@ def test_puffery_zero_search_tool_calls():
     assert v[0]["search_count"] == 0
 
 
-# 풀 파이프라인 — REFUTED (게이트 전부 충족)
+# 풀 파이프라인 — CONTRADICTED (게이트 전부 충족)
 def test_full_pipeline_refuted():
     db = FakeDb()
     p = make_pipeline(db=db)
     job_id = p.run_job("TEXT", "국내 최초 진공 블렌더")
     v = db.fetch_verdicts(job_id)[0]
-    assert v["verdict_code"] == "REFUTED"
+    assert v["verdict_code"] == "CONTRADICTED"
     assert v["evidence_link"] == "https://news.example.com/a"
     assert v["confidence_source"] == "fresh_search"
     assert _terminals(db, job_id) == ["job.completed"]
@@ -42,7 +42,7 @@ def test_full_pipeline_refuted():
     assert db.evidences and db.candidates
 
 
-# T2 e2e — 필수 필드 미충족이면 REFUTED 안 됨 + D-03 문구 검증 (T7)
+# T2 e2e — 필수 필드 미충족이면 CONTRADICTED 안 됨 + D-03 문구 검증 (T7)
 def test_partial_match_stays_not_refuted_with_honest_wording():
     db = FakeDb()
     p = make_pipeline(db=db, oai_responses={
@@ -53,7 +53,7 @@ def test_partial_match_stays_not_refuted_with_honest_wording():
     })
     job_id = p.run_job("TEXT", "국내 최초 진공 블렌더")
     v = db.fetch_verdicts(job_id)[0]
-    assert v["verdict_code"] == "NOT_REFUTED"
+    assert v["verdict_code"] == "UNVERIFIED"
     assert v["evidence_link"] is None  # T9 상당 — Fake가 제약 위반 시 raise
     for banned in ("사실로 보입니다", "확인되었습니다", "문제없습니다"):
         assert banned not in v["reasoning"]
@@ -73,7 +73,7 @@ def test_second_run_cache_hit():
     assert decisions == ["HIT"]
     v = db.fetch_verdicts(job2)[0]
     assert v["confidence_source"] == "cached_reuse"
-    assert v["verdict_code"] == "REFUTED"  # canonical의 최신 verdict 재사용
+    assert v["verdict_code"] == "CONTRADICTED"  # canonical의 최신 verdict 재사용
     assert v["search_count"] == 0
     canonical = next(iter(db.canonicals.values()))
     assert canonical["reuse_count"] == 1 and canonical["member_count"] >= 2
@@ -103,7 +103,7 @@ def test_new_category_created_when_below_threshold():
     classified = [e for e in _events(db, job_id) if e["event_type"] == "industry.classified"]
     assert classified and classified[0]["payload"]["is_new"] is True
     assert any(c["created_by"] == "agent_generated" for c in db.categories)
-    assert db.fetch_verdicts(job_id)[0]["verdict_code"] == "REFUTED"  # 판정은 정상
+    assert db.fetch_verdicts(job_id)[0]["verdict_code"] == "CONTRADICTED"  # 판정은 정상
 
 
 # T6 — LINER 전면 타임아웃 → DEGRADED 결정론적 종료 (무한 스피너 없음)
@@ -113,7 +113,7 @@ def test_liner_timeout_degrades_deterministically():
     job_id = p.run_job("TEXT", "국내 최초 진공 블렌더")
     assert _terminals(db, job_id) == ["job.degraded"]
     v = db.fetch_verdicts(job_id)[0]
-    assert v["verdict_code"] == "PUBLIC_SUBSTANTIATION_NOT_FOUND"
+    assert v["verdict_code"] == "UNVERIFIED"
     assert v["required_evidence_note"]
 
 

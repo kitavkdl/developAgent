@@ -3,9 +3,8 @@
 COUNTER 에이전트 튜닝 요청 [A]/[D] 검증:
 - [A] 브랜드가 해소되면 이후 모든 검색 쿼리에 코드 레벨로 강제 포함되는지,
   끝내 해소 못 하면 검색을 강행하지 않고 결정론적으로 종료하는지.
-- [D] SELF_REPORTED_PRIVATE_METRIC은 검색 성공 + 반례 미발견 시
-  NOT_REFUTED가 아니라 PUBLIC_SUBSTANTIATION_NOT_FOUND로 끝나는지
-  (단, 실제 반례를 찾으면 REFUTED는 여전히 유효한지).
+- [D] SELF_REPORTED_PRIVATE_METRIC은 검색 성공 + 반례 미발견 시도
+  UNVERIFIED로 끝나는지 (단, 실제 반례를 찾으면 CONTRADICTED는 여전히 유효한지).
 - target_entity가 필요 없는 기존 claim_type(SUPERLATIVE_FIRST)에는 이 로직이
   전혀 개입하지 않아야 한다 (회귀 없음).
 """
@@ -35,9 +34,8 @@ def _terminals(db, job_id):
            if e["event_type"] in ("job.completed", "job.failed", "job.degraded")]
 
 
-# [D] 회귀: 검색은 정상 성공했지만 반례를 못 찾으면 NOT_REFUTED가 아니라
-# PUBLIC_SUBSTANTIATION_NOT_FOUND.
-def test_self_reported_no_evidence_yields_public_substantiation_not_found():
+# [D] 회귀: 검색은 정상 성공했지만 반례를 못 찾으면 UNVERIFIED.
+def test_self_reported_no_evidence_yields_unverified():
     db = FakeDb()
     liner = FakeLiner([make_result(url="https://example.com/unrelated")])
     p = make_pipeline(db=db, liner=liner, oai_responses={
@@ -49,13 +47,13 @@ def test_self_reported_no_evidence_yields_public_substantiation_not_found():
 
     v = db.fetch_verdicts(job_id)
     assert len(v) == 1
-    assert v[0]["verdict_code"] == "PUBLIC_SUBSTANTIATION_NOT_FOUND"
-    assert _terminals(db, job_id) == ["job.completed"]  # degraded 아님 — 정상 4값 판정
+    assert v[0]["verdict_code"] == "UNVERIFIED"
+    assert _terminals(db, job_id) == ["job.completed"]  # degraded 아님 — 정상 판정
 
 
-# REFUTED는 SELF_REPORTED_PRIVATE_METRIC에서도 여전히 유효 — 타입 오버라이드는
-# "반례를 못 찾았을 때"만 적용되고, 실제로 찾으면 REFUTED가 우선한다.
-def test_self_reported_still_allows_refuted_when_evidence_found():
+# CONTRADICTED는 SELF_REPORTED_PRIVATE_METRIC에서도 여전히 유효 — 타입 오버라이드는
+# "반례를 못 찾았을 때"만 적용되고, 실제로 찾으면 CONTRADICTED가 우선한다.
+def test_self_reported_still_allows_contradicted_when_evidence_found():
     db = FakeDb()
     liner = FakeLiner([make_result()])
     p = make_pipeline(db=db, liner=liner, oai_responses={
@@ -65,7 +63,7 @@ def test_self_reported_still_allows_refuted_when_evidence_found():
     })
     job_id = p.run_job("TEXT", "바다포도 모공앰플이 이때까지 1000만 개 이상 팔린 것")
     v = db.fetch_verdicts(job_id)
-    assert v[0]["verdict_code"] == "REFUTED"
+    assert v[0]["verdict_code"] == "CONTRADICTED"
 
 
 # [A] 회귀: 텍스트만으로 브랜드를 못 찾으면 LINER 웹 검색 1회로 재시도하고,
@@ -88,7 +86,7 @@ def test_brand_resolved_via_search_is_forced_into_every_query():
     assert all("마미케어" in q for q in verification_queries)
 
     v = db.fetch_verdicts(job_id)
-    assert v[0]["verdict_code"] == "REFUTED"
+    assert v[0]["verdict_code"] == "CONTRADICTED"
 
 
 # [A] 회귀: 텍스트/검색 모두 브랜드를 못 찾으면 S4/S5를 아예 건너뛰고 결정론적으로
@@ -107,12 +105,12 @@ def test_unresolved_brand_skips_search_and_terminates_deterministically():
 
     v = db.fetch_verdicts(job_id)
     assert len(v) == 1
-    assert v[0]["verdict_code"] == "PUBLIC_SUBSTANTIATION_NOT_FOUND"
+    assert v[0]["verdict_code"] == "UNVERIFIED"
     assert v[0]["required_evidence_note"] == "주장 대상 브랜드가 특정되지 않아 검증 불가"
 
 
 # 회귀 없음: target_entity가 필요 없는 기존 claim_type(SUPERLATIVE_FIRST)에는
-# 주체 해소 로직이 전혀 개입하지 않는다 — 기존 REFUTED 경로 그대로.
+# 주체 해소 로직이 전혀 개입하지 않는다 — 기존 CONTRADICTED 경로 그대로.
 def test_target_entity_not_required_claim_types_skip_subject_resolution():
     db = FakeDb()
     liner = FakeLiner([make_result()])
@@ -121,4 +119,4 @@ def test_target_entity_not_required_claim_types_skip_subject_resolution():
 
     assert all(log.get("search_mode") != "subject_resolution" for log in db.search_logs)
     v = db.fetch_verdicts(job_id)
-    assert v[0]["verdict_code"] == "REFUTED"  # 기존 동작 그대로
+    assert v[0]["verdict_code"] == "CONTRADICTED"  # 기존 동작 그대로

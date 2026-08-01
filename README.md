@@ -5,21 +5,23 @@
 >
 > AGENT:24 해커톤 (YAI × OpenAI) · LINER API Agent 트랙 제출물.
 
-## 판정 계약 — 4값 고정
+## 판정 계약 — 3단계 판정 + PUFFERY
 
 | verdict | 의미 |
 |---|---|
-| `REFUTED` | falsifier 기준(범주·지표·시점·주체)을 **전부** 충족하는 반례 문서가 실재. 근거 URL 필수 |
-| `NOT_REFUTED` | 실행한 N개 쿼리에서 반례 미발견. **"사실이다"라는 뜻이 아님** — 실행 쿼리 전문을 그대로 노출 |
-| `PUBLIC_SUBSTANTIATION_NOT_FOUND` | 공개 근거 자체가 확인되지 않음 |
+| `CONTRADICTED` | falsifier 기준(범주·지표·시점·주체)을 **전부** 충족하는 반박 근거 문서가 실재. 근거 URL 필수 |
+| `CORROBORATED` | 위와 동일한 기준을 전부 충족하는 **뒷받침** 근거 문서가 실재. 근거 URL 필수하되 **"완전히 입증됐다"는 뜻은 아님** |
+| `UNVERIFIED` | 실행한 N개 쿼리에서 반증도 뒷받침 근거도 미발견. **"사실이다"도 "거짓이다"도 아님** — 판단 유보. 실행 쿼리 전문과 탐색 범위(쿼리 수·검토 문서 수)를 그대로 노출 |
 | `PUFFERY` | 주관적 과장. 검증 대상이 아니므로 **검색 tool_call 0건** |
 
 신뢰도 점수(%)와 참/거짓 판정은 **의도적으로 만들지 않습니다**. 측정할 수 없는 것을 측정한 척하지 않습니다.
+특히 `UNVERIFIED`는 "반례를 못 찾았으니 사실일 가능성이 높다" 식의 긍정 결론을 절대
+내리지 않도록 프롬프트 지시 + 정규식 가드레일 이중으로 차단합니다 (`counter/guardrail.py`).
 
 ## 아키텍처 한 줄 요약
 
 **LINER는 검색을 실행하고, OpenAI는 그 검색을 계획·평가·판정한다.**
-오케스트레이션(상태 전이·검색 예산·REFUTED 게이트)은 전부 애플리케이션 코드가 소유하며,
+오케스트레이션(상태 전이·검색 예산·3단계 게이트)은 전부 애플리케이션 코드가 소유하며,
 LLM은 각 단계 안에서만 판단한다.
 
 ```
@@ -29,8 +31,8 @@ LLM은 각 단계 안에서만 판단한다.
  → S2a ROUTER (SCIENTIFIC/GENERAL) ∥ S2b 업종 분류 (신규 카테고리 즉석 생성)
  → S3 CACHE ROUTING (결정론적 — HIT/MISS/DELTA/REVERIFY)
  → S4 REFUTATION HYPOTHESIS ("깨려면 무엇이 존재해야 하는가")
- → S5 LINER 검색 (Web/Scholar) + 증거 적용가능성 평가
- → S6 결정론적 REFUTED 게이트 + 2단 가드레일 → 4값 판정
+ → S5 LINER 검색 (Web/Scholar) + 증거 적용가능성 평가 (반박/뒷받침 방향 모두 평가)
+ → S6 결정론적 3단계 게이트(CONTRADICTED/CORROBORATED/UNVERIFIED) + 2단 가드레일 → 판정
 ```
 
 각 단계 코드 상단에 "왜 이 순서인가"가 주석으로 남아 있습니다 (`counter/pipeline/`).
@@ -72,7 +74,7 @@ streamlit run app.py
 pytest
 ```
 
-핵심은 **T2 — 필수 필드 미충족 candidate가 REFUTED로 승격되지 않음**.
+핵심은 **T2 — 필수 필드 미충족 candidate가 CONTRADICTED/CORROBORATED로 승격되지 않음**.
 사람 검수 단계가 설계상 없으므로 이 테스트가 유일한 정확성 보증입니다 (`tests/`).
 
 ## 문서

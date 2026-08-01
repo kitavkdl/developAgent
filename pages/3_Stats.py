@@ -1,6 +1,6 @@
 """통계 대시보드 (BUILD_PLAN §1.3 — 구 /v1/stats 대체).
 
-핵심 시각화는 gate 항목: 후보는 많은데 REFUTED는 적다 = 결정론적 게이트가
+핵심 시각화는 gate 항목: 후보는 많은데 CONTRADICTED는 적다 = 결정론적 게이트가
 오판정을 실제로 걸러내고 있다는 증거.
 """
 from __future__ import annotations
@@ -38,21 +38,23 @@ if not hasattr(db, "reuse_savings_summary"):
 
 kpi = db.kpi_summary()
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("총 판정", kpi["total_verdicts"])
-c2.metric("REFUTED", kpi["refuted"])
-c3.metric("캐시 히트", kpi["cache_hits"])
-c4.metric("LINER 검색 실행", kpi["searches"])
+c2.metric("CONTRADICTED", kpi["contradicted"])
+c3.metric("CORROBORATED", kpi["corroborated"])
+c4.metric("캐시 히트", kpi["cache_hits"])
+c5.metric("LINER 검색 실행", kpi["searches"])
 
 st.divider()
 st.subheader("🚧 결정론적 게이트 통과율")
-st.caption("반례 '후보'는 많지만 REFUTED로 승격되는 건 소수 — falsifier 필수 차원"
+st.caption("반례 '후보'는 많지만 CONTRADICTED로 승격되는 건 소수 — falsifier 필수 차원"
            "(scope/metric/timeframe/target_entity/geography)을 전부 충족해야만 "
-           "코드가 REFUTED를 조립하기 때문 (PRD N1, DB_SCHEMA.md §5).")
+           "코드가 CONTRADICTED를 조립하기 때문 (PRD N1, DB_SCHEMA.md §5). 반증도 "
+           "뒷받침도 못 찾으면 UNVERIFIED — '진실이다'로 오해되지 않도록 별도 코드로 둔다.")
 g1, g2, g3 = st.columns(3)
 g1.metric("평가된 후보", kpi["candidates"])
-g2.metric("REFUTED 승격", kpi["refuted"])
-rate = (kpi["refuted"] / kpi["candidates"] * 100) if kpi["candidates"] else 0.0
+g2.metric("CONTRADICTED 승격", kpi["contradicted"])
+rate = (kpi["contradicted"] / kpi["candidates"] * 100) if kpi["candidates"] else 0.0
 g3.metric("통과율", f"{rate:.1f}%")
 
 st.divider()

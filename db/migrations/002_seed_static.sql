@@ -12,11 +12,20 @@ INSERT INTO claim_type VALUES
 ON CONFLICT (claim_type_code) DO NOTHING;
 
 INSERT INTO verdict_type VALUES
- ('REFUTED','falsifier 기준 전부 충족하는 반례 존재'),
- ('NOT_REFUTED','실행 쿼리에서 기준 충족 반례 미발견. 참이라는 뜻 아님'),
- ('PUBLIC_SUBSTANTIATION_NOT_FOUND','공개 근거 자체가 확인되지 않음'),
+ ('CONTRADICTED','falsifier 기준 전부 충족하는 반박 근거 존재'),
+ ('CORROBORATED','falsifier와 동일한 기준을 전부 충족하는 뒷받침 근거 존재. 완전한 사실 확정은 아님'),
+ ('UNVERIFIED','실행 쿼리 범위에서 반증도 뒷받침 근거도 미발견. 참도 거짓도 아님 — 판단 유보'),
  ('PUFFERY','주관적 과장. 검증 대상 아님')
 ON CONFLICT (verdict_code) DO NOTHING;
+
+-- 구 4값(REFUTED/NOT_REFUTED/PUBLIC_SUBSTANTIATION_NOT_FOUND) 정리 — 참조하는
+-- verdict 행이 남아있지 않은 룩업 값만 제거 (이미 배포된 환경의 과거 판정
+-- 기록은 verdict_type FK 때문에 안전하게 남겨둔다).
+DELETE FROM verdict_type
+WHERE verdict_code IN ('REFUTED', 'NOT_REFUTED', 'PUBLIC_SUBSTANTIATION_NOT_FOUND')
+  AND NOT EXISTS (
+    SELECT 1 FROM verdict v WHERE v.verdict_code = verdict_type.verdict_code
+  );
 
 -- falsifier_spec 초기값 (DB_SCHEMA.md — "반드시 이 값으로 시드")
 -- 읽는 법: 최초 주장은 scope+timeframe이 맞아야 깨지고 target은 무관.

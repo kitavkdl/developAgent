@@ -83,7 +83,7 @@ def run_search_and_evaluate(*, claim: dict, claim_id: str, route: str,
 
     candidates: list[dict] = []
     early_stopped = False
-    stop_event = threading.Event()  # 어느 워커든 REFUTED 게이트를 통과하면 set
+    stop_event = threading.Event()  # 어느 워커든 CONTRADICTED 게이트를 통과하면 set
 
     if doc_tasks:
         with ThreadPoolExecutor(
@@ -167,10 +167,10 @@ def _evaluate_document(*, claim, doc, log_id, oai, db, settings, emitter,
             emitter=emitter, stage="S5_EVALUATOR",
         )
     except Exception as e:
-        # fail-closed: 평가 실패 문서는 반례가 될 수 없다 (전부 false)
+        # fail-closed: 평가 실패 문서는 반례도 뒷받침 근거도 될 수 없다 (전부 false)
         ev = {"scope_match": False, "metric_match": False, "timeframe_match": False,
-              "target_match": False, "geography_match": False, "evidence_quote": "",
-              "is_syndicated_copy": False, "insufficient_access": True,
+              "target_match": False, "geography_match": False, "supports_claim": False,
+              "evidence_quote": "", "is_syndicated_copy": False, "insufficient_access": True,
               "reasoning": f"평가 실패: {e}"}
 
     # 발행일 없는 문서는 timeframe_match=false 강제 — 날짜를 추측하지 말 것 (ARCHITECTURE §7)
@@ -184,6 +184,7 @@ def _evaluate_document(*, claim, doc, log_id, oai, db, settings, emitter,
         "timeframe_match": ev["timeframe_match"],
         "target_entity_match": ev["target_match"],
         "geography_match": ev["geography_match"],
+        "supports_claim": ev.get("supports_claim", False),
         "is_syndicated_copy": ev["is_syndicated_copy"],
         "insufficient_access": ev["insufficient_access"],
     }
