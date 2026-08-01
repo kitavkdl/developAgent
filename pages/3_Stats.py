@@ -1,20 +1,43 @@
 """통계 대시보드 (BUILD_PLAN §1.3 — 구 /v1/stats 대체).
 
 핵심 시각화는 gate 항목: 후보는 많은데 CONTRADICTED는 적다 = 결정론적 게이트가
-오판정을 실제로 걸러내고 있다는 증거.
+오판정을 실제로 걸러내고 있다는 증거. 차트들은 전부 "비교/대조" 축으로 구성한다 —
+후보 vs 승격, 캐시 재사용 vs 신규 검색, 풀 서치 vs 델타 서치 비용.
 """
 from __future__ import annotations
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from counter.settings import bridge_secrets_to_env, load_settings
+from counter.ui_theme import (
+    ACCENT,
+    ACCENT_BRIGHT,
+    DANGER,
+    INK_DIM,
+    LINE_BRIGHT,
+    OK,
+    TEAL_BRIGHT,
+    VERDICT_COLORS,
+    inject_theme,
+    kpi_row,
+    plain_chip,
+    plotly_layout,
+)
 
-st.set_page_config(page_title="COUNTER — Stats", page_icon="📊", layout="wide")
+st.set_page_config(page_title="COUNTER — Stats", layout="wide")
+inject_theme()
 bridge_secrets_to_env()
 settings = load_settings()
 
-st.title("📊 통계 대시보드")
+st.title("통계 대시보드")
+st.markdown(
+    '<p class="ctr-lede">숫자를 대조해서 판단합니다 — 후보 대비 승격률, '
+    "재사용 대비 신규 검색, 풀 서치 대비 델타 서치 비용. 각 차트는 "
+    "결정론적 게이트와 축적 캐시가 실제로 작동한다는 근거를 보여줍니다.</p>",
+    unsafe_allow_html=True,
+)
 
 if not settings.database_url:
     st.warning("DATABASE_URL이 설정되지 않아 통계를 표시할 수 없습니다.")
@@ -38,84 +61,219 @@ if not hasattr(db, "reuse_savings_summary"):
 
 kpi = db.kpi_summary()
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("총 판정", kpi["total_verdicts"])
-c2.metric("CONTRADICTED", kpi["contradicted"])
-c3.metric("CORROBORATED", kpi["corroborated"])
-c4.metric("캐시 히트", kpi["cache_hits"])
-c5.metric("LINER 검색 실행", kpi["searches"])
+kpi_row([
+    ("총 판정", kpi["total_verdicts"], None, "rgba(196,120,43,0.35)"),
+    ("CONTRADICTED", kpi["contradicted"], "반박 근거 확정 건수", "rgba(159,217,176,0.35)"),
+    ("CORROBORATED", kpi["corroborated"], "뒷받침 근거 확정 건수", "rgba(183,208,245,0.35)"),
+    ("캐시 히트", kpi["cache_hits"], "재검색 없이 재사용", "rgba(31,122,108,0.35)"),
+    ("LINER 검색 실행", kpi["searches"], None, "rgba(183,208,245,0.35)"),
+])
 
 st.divider()
-st.subheader("🚧 결정론적 게이트 통과율")
-st.caption("반례 '후보'는 많지만 CONTRADICTED로 승격되는 건 소수 — falsifier 필수 차원"
-           "(scope/metric/timeframe/target_entity/geography)을 전부 충족해야만 "
-           "코드가 CONTRADICTED를 조립하기 때문 (PRD N1, DB_SCHEMA.md §5). 반증도 "
-           "뒷받침도 못 찾으면 UNVERIFIED — '진실이다'로 오해되지 않도록 별도 코드로 둔다.")
-g1, g2, g3 = st.columns(3)
-g1.metric("평가된 후보", kpi["candidates"])
-g2.metric("CONTRADICTED 승격", kpi["contradicted"])
+
+# ---- 1. 결정론적 게이트 통과율: 후보 vs 승격 (funnel) ----
+st.subheader("결정론적 게이트 통과율")
+st.caption(
+    "반례 '후보'는 많지만 CONTRADICTED로 승격되는 건 소수 — falsifier 필수 차원"
+    "(scope/metric/timeframe/target_entity/geography)을 전부 충족해야만 코드가 "
+    "CONTRADICTED를 조립하기 때문 (PRD N1, DB_SCHEMA.md §5). 반증도 뒷받침도 "
+    "못 찾으면 UNVERIFIED — '진실이다'로 오해되지 않도록 별도 코드로 둔다."
+)
+
+g1, g2, g3 = st.columns([1, 1, 1.4])
 rate = (kpi["contradicted"] / kpi["candidates"] * 100) if kpi["candidates"] else 0.0
-g3.metric("통과율", f"{rate:.1f}%")
+with g1:
+    kpi_row([("평가된 후보", kpi["candidates"], None, "rgba(196,120,43,0.3)")])
+with g2:
+    kpi_row([("CONTRADICTED 승격", kpi["contradicted"], None, "rgba(159,217,176,0.3)")])
+with g3:
+    kpi_row([("게이트 통과율", f"{rate:.1f}%", "낮을수록 게이트가 엄격하게 걸러낸다는 뜻", "rgba(226,181,114,0.3)")])
+
+funnel = go.Figure(go.Funnel(
+    y=["평가된 후보", "CONTRADICTED 승격"],
+    x=[kpi["candidates"], kpi["contradicted"]],
+    textinfo="value+percent initial",
+    marker=dict(color=[ACCENT, VERDICT_COLORS["CONTRADICTED"]]),
+    connector=dict(line=dict(color="rgba(232,220,196,0.25)", width=1)),
+))
+plotly_layout(funnel, height=280)
+st.plotly_chart(funnel, use_container_width=True, theme=None)
 
 st.divider()
+
+# ---- 2. 판정 분포 (taxonomy 전체를 항상 보여줌) ----
 st.subheader("판정 분포")
 breakdown = db.verdict_breakdown()
-if breakdown:
-    df = pd.DataFrame(breakdown).set_index("verdict_code")
-    st.bar_chart(df)
-else:
-    st.info("판정 데이터가 아직 없습니다.")
+codes = list(VERDICT_COLORS.keys())
+counts_by_code = {r["verdict_code"]: r["n"] for r in breakdown}
+values = [counts_by_code.get(c, 0) for c in codes]
+
+fig_v = go.Figure(go.Bar(
+    x=values, y=codes, orientation="h",
+    marker=dict(color=[VERDICT_COLORS[c] for c in codes]),
+    text=values, textposition="outside",
+))
+plotly_layout(fig_v, height=300)
+fig_v.update_xaxes(title="판정 건수")
+st.plotly_chart(fig_v, use_container_width=True, theme=None)
 
 st.divider()
-st.subheader("♻️ 축적/재사용 (canonical 원장)")
-r1, r2, r3, r4 = st.columns(4)
-r1.metric("canonical 클레임", kpi["canonicals"])
-r2.metric("누적 재사용", kpi["total_reuse"])
-r3.metric("캐시 히트율", f"{float(kpi['cache_hit_ratio'] or 0) * 100:.1f}%")
-r4.metric("에이전트 생성 카테고리", kpi["agent_categories"])
+
+# ---- 3. 축적/재사용: canonical 원장 ----
+st.subheader("축적 / 재사용 (canonical 원장)")
+kpi_row([
+    ("canonical 클레임", kpi["canonicals"], None, "rgba(196,120,43,0.3)"),
+    ("누적 재사용", kpi["total_reuse"], None, "rgba(159,217,176,0.3)"),
+    ("에이전트 생성 카테고리", kpi["agent_categories"], None, "rgba(226,181,114,0.3)"),
+])
+
+hit_ratio = max(0.0, min(1.0, float(kpi["cache_hit_ratio"] or 0)))
+
+gauge_col, note_col = st.columns([1, 1.15])
+with gauge_col:
+    gauge = go.Figure(go.Pie(
+        values=[hit_ratio, 1 - hit_ratio],
+        hole=0.74,
+        sort=False,
+        direction="clockwise",
+        marker=dict(
+            colors=[TEAL_BRIGHT, "#1c3831"],
+            line=dict(color=LINE_BRIGHT, width=1),
+        ),
+        textinfo="none",
+        hoverinfo="skip",
+    ))
+    gauge.add_annotation(
+        text=f"{hit_ratio * 100:.1f}%", showarrow=False, y=0.56,
+        font=dict(family="Fraunces, ui-serif, serif", size=30, color="#f4efe4"),
+    )
+    gauge.add_annotation(
+        text="캐시 히트율", showarrow=False, y=0.38,
+        font=dict(family="IBM Plex Mono, ui-monospace, monospace", size=11, color="#9fb0a8"),
+    )
+    plotly_layout(gauge, height=260)
+    gauge.update_layout(showlegend=False, margin=dict(l=8, r=8, t=8, b=8))
+    st.plotly_chart(gauge, use_container_width=True, theme=None)
+with note_col:
+    st.caption(
+        "재사용된 조회가 전체 조회(member_count)에서 차지하는 비율입니다 — "
+        "반복 조회일수록 새 검색 없이 축적된 판정을 재사용했다는 뜻입니다."
+    )
+    st.markdown(
+        plain_chip(f"재사용 {kpi['total_reuse']}건", TEAL_BRIGHT) + " " +
+        plain_chip(f"canonical {kpi['canonicals']}건", "#c5cec8"),
+        unsafe_allow_html=True,
+    )
 
 st.divider()
-st.subheader("⚡ 재사용 절감 효과 (시간 · LLM 호출 수)")
-st.caption("cached_reuse는 S4(가설)~S6(REPORTER/GUARDRAIL)까지 새 LLM 판단을 "
-           "전혀 만들지 않고 이미 검증된 판정을 그대로 재사용합니다 — 소요시간뿐 "
-           "아니라 '매번 새로 판단해서 생기는 할루시네이션 여지' 자체가 줄어듭니다. "
-           "다른 입력 경로(TEXT/URL/IMAGE)로 받아도 canonical 매칭은 업종+정규화된 "
-           "클레임 문구로만 되므로 source_type과 무관하게 재사용됩니다.")
+
+# ---- 4. 재사용 절감 효과 (시간 · LLM 호출 수) ----
+st.subheader("재사용 절감 효과 (시간 · LLM 호출 수)")
+st.caption(
+    "cached_reuse는 S4(가설)~S6(REPORTER/GUARDRAIL)까지 새 LLM 판단을 전혀 "
+    "만들지 않고 이미 검증된 판정을 그대로 재사용합니다 — 소요시간뿐 아니라 "
+    "'매번 새로 판단해서 생기는 할루시네이션 여지' 자체가 줄어듭니다. 다른 "
+    "입력 경로(TEXT/URL/IMAGE)로 받아도 canonical 매칭은 업종·정규화된 "
+    "클레임 문구로만 되므로 source_type과 무관하게 재사용됩니다."
+)
 savings = db.reuse_savings_summary()
 if savings:
-    st.dataframe(pd.DataFrame(savings), hide_index=True)
+    df_savings = pd.DataFrame(savings).rename(columns={
+        "confidence_source": "판정 경로", "n": "건수",
+        "avg_job_ms": "평균 소요시간(ms)", "avg_openai_calls": "평균 OpenAI 호출 수",
+    })
+    st.dataframe(df_savings, hide_index=True, use_container_width=True)
     fresh = next((r for r in savings if r["confidence_source"] == "fresh_search"), None)
     cached = next((r for r in savings if r["confidence_source"] == "cached_reuse"), None)
     if fresh and cached and fresh.get("avg_job_ms"):
         time_saved = (1 - float(cached["avg_job_ms"] or 0) / float(fresh["avg_job_ms"])) * 100
         fresh_calls = max(float(fresh["avg_openai_calls"] or 0), 1e-9)
         call_saved = (1 - float(cached["avg_openai_calls"] or 0) / fresh_calls) * 100
-        sc1, sc2 = st.columns(2)
-        sc1.metric("캐시 재사용 시 평균 소요시간 절감", f"{time_saved:.0f}%")
-        sc2.metric("캐시 재사용 시 평균 LLM 호출 절감", f"{call_saved:.0f}%")
+        kpi_row([
+            ("캐시 재사용 시 평균 소요시간 절감", f"{time_saved:.0f}%", None, "rgba(31,122,108,0.3)"),
+            ("캐시 재사용 시 평균 LLM 호출 절감", f"{call_saved:.0f}%", None, "rgba(31,122,108,0.3)"),
+        ])
 else:
     st.info("완료된 job이 아직 없습니다.")
 
 st.divider()
-st.subheader("⏱️ 검색 모드별 (델타 서치 절감 — 축적 효과의 정량 증거)")
+
+# ---- 5. 검색 모드별 비교 — 델타 서치 절감 정량 증거 ----
+st.subheader("검색 모드별 비교 (델타 서치 절감 효과)")
+st.caption("건수와 평균 지연시간을 나란히 대조합니다 — 델타/재사용 모드가 "
+          "풀 서치보다 저렴하다면 축적 효과가 실제로 비용을 줄이고 있다는 뜻입니다.")
 modes = db.search_mode_breakdown()
 if modes:
-    st.dataframe(pd.DataFrame(modes), hide_index=True)
+    df_modes = pd.DataFrame(modes)
+    df_modes["avg_latency_ms"] = df_modes["avg_latency_ms"].astype(float).round(0)
+
+    fig_m = go.Figure()
+    fig_m.add_trace(go.Bar(
+        x=df_modes["search_mode"], y=df_modes["n"], name="실행 건수",
+        marker=dict(color=ACCENT), yaxis="y1",
+    ))
+    fig_m.add_trace(go.Scatter(
+        x=df_modes["search_mode"], y=df_modes["avg_latency_ms"], name="평균 지연시간 (ms)",
+        mode="lines+markers", marker=dict(color=TEAL_BRIGHT, size=10),
+        line=dict(color=TEAL_BRIGHT, width=2), yaxis="y2",
+    ))
+    fig_m.update_layout(
+        yaxis=dict(title="실행 건수"),
+        yaxis2=dict(title="평균 지연시간 (ms)", overlaying="y", side="right",
+                   showgrid=False),
+    )
+    plotly_layout(fig_m, height=340)
+    st.plotly_chart(fig_m, use_container_width=True, theme=None)
 else:
     st.info("검색 로그가 아직 없습니다.")
 
-st.subheader("🩺 LINER 호출 상태별 (평가된 후보=0 원인 진단용)")
+st.divider()
+
+# ---- 6. LINER 호출 상태별 (평가된 후보=0 원인 진단용) ----
+st.subheader("LINER 호출 상태별")
 st.caption("success/empty = LINER 응답은 정상 수신 (empty면 결과 문서 0건). "
            "error/timeout = 요청 자체가 실패 (키/네트워크/엔드포인트 문제).")
 statuses = db.search_status_breakdown()
 if statuses:
-    st.dataframe(pd.DataFrame(statuses), hide_index=True)
+    status_colors = {"success": OK, "empty": INK_DIM, "timeout": ACCENT_BRIGHT, "error": DANGER}
+    df_status = pd.DataFrame(statuses)
+    fig_s = go.Figure(go.Bar(
+        x=df_status["n"], y=df_status["status"], orientation="h",
+        marker=dict(color=[status_colors.get(s, INK_DIM) for s in df_status["status"]]),
+        text=df_status["n"], textposition="outside",
+    ))
+    plotly_layout(fig_s, height=220)
+    fig_s.update_xaxes(title="호출 건수")
+    st.plotly_chart(fig_s, use_container_width=True, theme=None)
 else:
     st.info("검색 로그가 아직 없습니다.")
 
-st.subheader("🆕 에이전트가 즉석 생성한 카테고리 (Real-time Adaptability 증거)")
+st.divider()
+
+# ---- 7. 에이전트가 즉석 생성한 카테고리 — 실시간 적응력 증거 ----
+st.subheader("에이전트가 즉석 생성한 카테고리")
+st.caption("시드에 없는 업종을 입력하면 여기 누적됩니다 — 우상향할수록 "
+          "미리 정의되지 않은 업종에도 스스로 대응하고 있다는 뜻입니다.")
 cats = db.agent_categories()
 if cats:
-    st.dataframe(pd.DataFrame(cats), hide_index=True)
+    df_cats = pd.DataFrame(cats).sort_values("created_at")
+    df_cats["cumulative"] = range(1, len(df_cats) + 1)
+
+    fig_c = go.Figure(go.Scatter(
+        x=df_cats["created_at"], y=df_cats["cumulative"],
+        mode="lines+markers", line=dict(color=ACCENT_BRIGHT, shape="hv", width=2),
+        marker=dict(color=ACCENT_BRIGHT, size=7),
+        fill="tozeroy", fillcolor="rgba(226,181,114,0.12)",
+    ))
+    fig_c.update_yaxes(title="누적 카테고리 수")
+    plotly_layout(fig_c, height=300)
+    st.plotly_chart(fig_c, use_container_width=True, theme=None)
+
+    st.dataframe(
+        df_cats[["category_id", "label", "created_at"]].rename(columns={
+            "category_id": "카테고리 코드", "label": "라벨", "created_at": "생성 시각",
+        }),
+        hide_index=True, use_container_width=True,
+    )
 else:
     st.info("아직 없습니다 — 시드에 없는 업종을 입력하면 여기 나타납니다.")

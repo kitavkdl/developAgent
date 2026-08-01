@@ -1,4 +1,4 @@
-"""COUNTER — 메인 화면 (입력 1회 → 4값 판정. 사용자 프롬프트 없음이 설계 의도).
+"""COUNTER — 메인 화면 (입력 1회 → 판정. 사용자 프롬프트 없음이 설계 의도).
 
 UI는 파이프라인의 계약 함수(run_job_async / get_job_state)만 안다
 (BUILD_PLAN §1.1). 사람의 좋아요/싫어요 피드백 수집은 없다 — 목표는 사람
@@ -15,14 +15,21 @@ import streamlit as st
 from counter.events import TERMINAL_EVENTS
 from counter.settings import bridge_secrets_to_env, load_settings
 from counter.state import derive_state
+from counter.ui_theme import DANGER, OK, cache_badge, inject_theme, plain_chip, verdict_badge
 
-st.set_page_config(page_title="COUNTER", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="COUNTER", layout="wide")
+inject_theme()
 bridge_secrets_to_env()
 settings = load_settings()
 
-st.title("🔍 COUNTER")
-st.caption("광고 최상급 주장(국내 최초 / 업계 1위 / 임상 완료 …)의 **반례가 공개 웹·학술 문헌에 실재하는지** 자율적으로 찾아 보고합니다. "
-           "참/거짓을 판정하지 않으며, 신뢰도 점수도 만들지 않습니다 — 반례의 존재 여부만 봅니다.")
+st.title("COUNTER")
+st.markdown(
+    '<p class="ctr-lede">광고 최상급 주장(국내 최초 · 업계 1위 · 임상 완료 …)의 '
+    "<strong>반례가 공개 웹·학술 문헌에 실재하는지</strong> 자율적으로 찾아 보고합니다. "
+    "참/거짓을 판정하지 않으며 신뢰도 점수도 만들지 않습니다 — 반례와 뒷받침 근거의 "
+    "존재 여부만 봅니다.</p>",
+    unsafe_allow_html=True,
+)
 
 # 키 없이도 앱은 뜬다 (B01 게이트). 실행 시점에만 설정을 요구.
 missing = [k for k, v in {
@@ -33,13 +40,6 @@ missing = [k for k, v in {
 if missing:
     st.warning(f"설정 누락: {', '.join(missing)} — `.streamlit/secrets.toml`을 채워야 판정을 실행할 수 있습니다 "
                f"(템플릿: `.streamlit/secrets.toml.example`)")
-
-VERDICT_BADGE = {
-    "CONTRADICTED": ("🔴 CONTRADICTED — 반박 근거 발견", "red"),
-    "CORROBORATED": ("🔵 CORROBORATED — 뒷받침 근거 발견 (사실 확정은 아님)", "blue"),
-    "UNVERIFIED": ("⚪ UNVERIFIED — 탐색 범위 내 반증·뒷받침 근거 모두 미확인", "gray"),
-    "PUFFERY": ("🟢 PUFFERY — 검증 대상 아님 (검색 미실행)", "green"),
-}
 
 
 @st.cache_resource
@@ -104,7 +104,7 @@ if job_id:
                f"Raw 스트림은 **Raw Trace** 페이지에서 확인")
 
     if not terminal_seen:
-        st.info("⏳ 파이프라인이 백그라운드에서 처리 중입니다 — 이 탭을 벗어나거나 "
+        st.info("파이프라인이 백그라운드에서 처리 중입니다 — 이 탭을 벗어나거나 "
                 "새로고침해도 계속 진행되니 잠시 후 다시 확인해도 됩니다.")
         time.sleep(settings.trace_poll_interval_seconds)
         st.rerun()
@@ -121,17 +121,22 @@ if job_id:
     if not verdicts and not failed:
         st.info("판정 결과가 아직 없습니다 (검증 대상 클레임이 없었을 수 있습니다).")
     for v in verdicts:
-        label, _ = VERDICT_BADGE.get(v["verdict_code"], (v["verdict_code"], "gray"))
         with st.container(border=True):
             st.markdown(f"**{v['claim_text']}**")
-            st.markdown(label)
+            st.markdown(verdict_badge(v["verdict_code"]), unsafe_allow_html=True)
             if v.get("confidence_source") == "cached_reuse":
-                st.markdown("♻️ **캐시 히트** — 재검색 없이 축적된 판정을 재사용했습니다 "
-                            f"(이번 조회 검색 실행 {v['search_count']}회).")
+                st.markdown(
+                    cache_badge("HIT", v.get("search_count")) +
+                    " 재검색 없이 축적된 판정을 재사용했습니다.",
+                    unsafe_allow_html=True,
+                )
             elif v.get("confidence_source") == "delta_search":
-                st.markdown("⏱️ **델타 서치** — 축적된 증거 위에 시간 간극만 좁혀 재검색했습니다.")
+                st.markdown(
+                    cache_badge("DELTA") + " 축적된 증거 위에 시간 간극만 좁혀 재검색했습니다.",
+                    unsafe_allow_html=True,
+                )
             if v.get("required_evidence_note"):
-                st.markdown(f"⚠️ 부분 증거로 종료: {v['required_evidence_note']}")
+                st.markdown(f"부분 증거로 종료: {v['required_evidence_note']}")
             st.write(v.get("reasoning") or "")
             if v.get("evidence_link"):
                 doc_label = "뒷받침 문서" if v["verdict_code"] == "CORROBORATED" else "반박 근거 문서"
@@ -150,7 +155,7 @@ if job_id:
                 # "안 찾아봤다"와 "이만큼 찾아봤는데도 없었다"는 전혀 다른 근거 강도다.
                 domains = sorted({d["source_domain"] for d in evidence_docs
                                   if d.get("source_domain")})
-                scope = f"🔍 탐색 범위 — 실행 쿼리 {len(queries)}개 · 검토 문서 {len(evidence_docs)}건"
+                scope = f"탐색 범위 — 실행 쿼리 {len(queries)}개 · 검토 문서 {len(evidence_docs)}건"
                 if domains:
                     scope += f" · 출처 도메인 {len(domains)}개"
                 st.caption(scope)
@@ -179,16 +184,19 @@ if job_id:
                         if isinstance(check, str):
                             check = json.loads(check)
                         if check:
-                            st.markdown(" · ".join(
-                                f"{'✅' if check.get(k) else '❌'} {label}"
-                                for k, label in field_labels.items()
-                            ))
+                            st.markdown(
+                                " ".join(
+                                    plain_chip(label, OK if check.get(k) else DANGER)
+                                    for k, label in field_labels.items()
+                                ),
+                                unsafe_allow_html=True,
+                            )
                             if check.get("supports_claim"):
-                                st.caption("↪️ 뒷받침(CORROBORATED) 방향으로 평가된 문서")
+                                st.caption("뒷받침(CORROBORATED) 방향으로 평가된 문서")
                             if check.get("is_syndicated_copy"):
-                                st.caption("⚠️ 동일 보도자료 재게재로 판단 — 독립 증거 아님")
+                                st.caption("동일 보도자료 재게재로 판단 — 독립 증거 아님")
                             if check.get("insufficient_access"):
-                                st.caption("⚠️ 스니펫만으로 판단 불가 — 근거 부족 처리")
+                                st.caption("스니펫만으로 판단 불가 — 근거 부족 처리")
                         if doc.get("reasoning"):
                             st.caption(f"평가 근거: {doc['reasoning']}")
                         st.divider()
