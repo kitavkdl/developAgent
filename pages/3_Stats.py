@@ -14,10 +14,12 @@ from counter.settings import bridge_secrets_to_env, load_settings
 from counter.ui_theme import (
     ACCENT,
     ACCENT_BRIGHT,
+    LINE_BRIGHT,
     TEAL_BRIGHT,
     VERDICT_COLORS,
     inject_theme,
     kpi_row,
+    plain_chip,
     plotly_layout,
 )
 
@@ -107,25 +109,49 @@ st.divider()
 
 # ---- 3. 축적/재사용: canonical 원장 ----
 st.subheader("축적 / 재사용 (canonical 원장)")
-r1, r2 = st.columns([1, 1.2])
-with r1:
-    kpi_row([
-        ("canonical 클레임", kpi["canonicals"], None, "rgba(196,120,43,0.3)"),
-        ("누적 재사용", kpi["total_reuse"], None, "rgba(159,217,176,0.3)"),
-        ("캐시 히트율", f"{float(kpi['cache_hit_ratio'] or 0) * 100:.1f}%", None, "rgba(31,122,108,0.3)"),
-        ("에이전트 생성 카테고리", kpi["agent_categories"], None, "rgba(226,181,114,0.3)"),
-    ])
-with r2:
-    donut = go.Figure(go.Pie(
-        labels=["재사용된 조회", "최초 조회 (member_count 기준 추정)"],
-        values=[kpi["total_reuse"], max(kpi["canonicals"], 1)],
-        hole=0.62,
-        marker=dict(colors=[TEAL_BRIGHT, "rgba(255,255,255,0.12)"]),
-        textinfo="label+percent",
+kpi_row([
+    ("canonical 클레임", kpi["canonicals"], None, "rgba(196,120,43,0.3)"),
+    ("누적 재사용", kpi["total_reuse"], None, "rgba(159,217,176,0.3)"),
+    ("에이전트 생성 카테고리", kpi["agent_categories"], None, "rgba(226,181,114,0.3)"),
+])
+
+hit_ratio = max(0.0, min(1.0, float(kpi["cache_hit_ratio"] or 0)))
+
+gauge_col, note_col = st.columns([1, 1.15])
+with gauge_col:
+    gauge = go.Figure(go.Pie(
+        values=[hit_ratio, 1 - hit_ratio],
+        hole=0.74,
+        sort=False,
+        direction="clockwise",
+        marker=dict(
+            colors=[TEAL_BRIGHT, "#1c3831"],
+            line=dict(color=LINE_BRIGHT, width=1),
+        ),
+        textinfo="none",
+        hoverinfo="skip",
     ))
-    plotly_layout(donut, height=280)
-    donut.update_layout(showlegend=False)
-    st.plotly_chart(donut, use_container_width=True, theme=None)
+    gauge.add_annotation(
+        text=f"{hit_ratio * 100:.1f}%", showarrow=False, y=0.56,
+        font=dict(family="Fraunces, ui-serif, serif", size=30, color="#f4efe4"),
+    )
+    gauge.add_annotation(
+        text="캐시 히트율", showarrow=False, y=0.38,
+        font=dict(family="IBM Plex Mono, ui-monospace, monospace", size=11, color="#9fb0a8"),
+    )
+    plotly_layout(gauge, height=260)
+    gauge.update_layout(showlegend=False, margin=dict(l=8, r=8, t=8, b=8))
+    st.plotly_chart(gauge, use_container_width=True, theme=None)
+with note_col:
+    st.caption(
+        "재사용된 조회가 전체 조회(member_count)에서 차지하는 비율입니다 — "
+        "반복 조회일수록 새 검색 없이 축적된 판정을 재사용했다는 뜻입니다."
+    )
+    st.markdown(
+        plain_chip(f"재사용 {kpi['total_reuse']}건", TEAL_BRIGHT) + " " +
+        plain_chip(f"canonical {kpi['canonicals']}건", "#c5cec8"),
+        unsafe_allow_html=True,
+    )
 
 st.divider()
 
