@@ -453,17 +453,14 @@ button.dbPage:focus-visible,
 .leafChain,
 .payloadGrid,
 .tokenChain {
-  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 10rem));
+  justify-content: center;
+  gap: 0.75rem;
+  width: min(100%, 86rem);
+  margin: 0 auto;
   padding: 0;
   list-style: none;
-}
-
-.branchFan {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(0.7rem, 2vw, 1.5rem);
-  width: min(100%, 72rem);
-  margin-inline: auto;
 }
 
 .branchFan > li {
@@ -497,52 +494,13 @@ button.dbPage:focus-visible,
 }
 
 .leafChain {
-  display: flex;
-  align-items: stretch;
-  width: min(100%, 86rem);
-  margin-inline: auto;
   padding-block: 0.6rem;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scroll-snap-type: inline mandatory;
-  scrollbar-color: rgba(217, 167, 94, 0.35) transparent;
-  scrollbar-width: thin;
 }
 
 .leafChain > li {
   --delay: calc(var(--node-index) * 100ms);
   position: relative;
-  flex: 1 0 0;
-  min-width: 13.5rem;
-  padding-right: 1.8rem;
-  scroll-snap-align: center;
   animation: page-descend 0.72s var(--delay) var(--ease-stage) both;
-}
-
-.leafChain > li:last-child {
-  padding-right: 0;
-}
-
-.leafChain > li:not(:last-child)::before {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  right: 0.3rem;
-  width: 1.2rem;
-  height: 1px;
-  background: #557565;
-}
-
-.leafChain > li:not(:last-child)::after {
-  content: ">";
-  position: absolute;
-  z-index: 2;
-  top: calc(50% - 0.46rem);
-  right: 0.15rem;
-  color: #6e9481;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
 }
 
 .leafPage {
@@ -570,14 +528,6 @@ button.dbPage:focus-visible,
 .leafPage > small {
   align-self: end;
   color: #5d7367;
-}
-
-.payloadGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
-  width: min(100%, 72rem);
-  margin-inline: auto;
 }
 
 .payloadGrid > li {
@@ -609,13 +559,6 @@ button.dbPage:focus-visible,
 
 .payloadRecord > code {
   align-self: end;
-}
-
-.tokenChain {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.6rem;
 }
 
 .tokenChain > li {
@@ -899,10 +842,6 @@ button.dbPage:focus-visible,
     grid-row: 4;
   }
 
-  .payloadGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .projectionNote {
     grid-template-columns: 1fr;
   }
@@ -945,44 +884,6 @@ button.dbPage:focus-visible,
     display: grid;
     gap: 0.18rem;
     font-size: 0.45rem;
-  }
-
-  .branchFan {
-    display: flex;
-    width: calc(100% + 1rem);
-    margin-right: -1rem;
-    padding-right: 1rem;
-    overflow-x: auto;
-    scroll-snap-type: inline mandatory;
-  }
-
-  .branchFan > li {
-    flex: 0 0 min(76vw, 16rem);
-    scroll-snap-align: center;
-  }
-
-  .leafChain {
-    width: calc(100% + 1rem);
-    margin-right: -1rem;
-    padding-right: 1rem;
-  }
-
-  .leafChain > li {
-    flex-basis: min(76vw, 16rem);
-  }
-
-  .payloadGrid {
-    display: flex;
-    width: calc(100% + 1rem);
-    margin-right: -1rem;
-    padding-right: 1rem;
-    overflow-x: auto;
-    scroll-snap-type: inline mandatory;
-  }
-
-  .payloadGrid > li {
-    flex: 0 0 min(76vw, 16rem);
-    scroll-snap-align: center;
   }
 
   .rootSlots {
