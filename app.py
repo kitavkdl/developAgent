@@ -11,14 +11,21 @@ import base64
 import streamlit as st
 
 from counter.settings import bridge_secrets_to_env, load_settings
+from counter.ui_theme import cache_badge, eyebrow, inject_theme, verdict_badge
 
-st.set_page_config(page_title="COUNTER", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="COUNTER", layout="wide")
+inject_theme()
 bridge_secrets_to_env()
 settings = load_settings()
 
-st.title("🔍 COUNTER")
-st.caption("광고 최상급 주장(국내 최초 / 업계 1위 / 임상 완료 …)의 **반례가 공개 웹·학술 문헌에 실재하는지** 자율적으로 찾아 보고합니다. "
-           "참/거짓을 판정하지 않으며, 신뢰도 점수도 만들지 않습니다 — 반례의 존재 여부만 봅니다.")
+st.markdown(eyebrow("Counter-evidence engine"), unsafe_allow_html=True)
+st.title("COUNTER")
+st.markdown(
+    '<p class="ctr-lede">광고 최상급 주장(국내 최초 · 업계 1위 · 임상 완료 …)의 '
+    "<strong>반례가 공개 웹·학술 문헌에 실재하는지</strong> 자율적으로 찾아 보고합니다. "
+    "참/거짓을 판정하지 않으며 신뢰도 점수도 만들지 않습니다 — 반례의 존재 여부만 봅니다.</p>",
+    unsafe_allow_html=True,
+)
 
 # 키 없이도 앱은 뜬다 (B01 게이트). 실행 시점에만 설정을 요구.
 missing = [k for k, v in {
@@ -29,13 +36,6 @@ missing = [k for k, v in {
 if missing:
     st.warning(f"설정 누락: {', '.join(missing)} — `.streamlit/secrets.toml`을 채워야 판정을 실행할 수 있습니다 "
                f"(템플릿: `.streamlit/secrets.toml.example`)")
-
-VERDICT_BADGE = {
-    "REFUTED": ("🔴 REFUTED — 반례 발견", "red"),
-    "NOT_REFUTED": ("🟡 NOT_REFUTED — 실행한 쿼리에서 반례 미발견 (사실 확인 아님)", "orange"),
-    "PUBLIC_SUBSTANTIATION_NOT_FOUND": ("⚪ 공개 실증자료 미확인", "gray"),
-    "PUFFERY": ("🟢 PUFFERY — 검증 대상 아님 (검색 미실행)", "green"),
-}
 
 
 @st.cache_resource
@@ -90,17 +90,23 @@ if job_id:
     if not verdicts:
         st.info("판정 결과가 아직 없습니다.")
     for v in verdicts:
-        label, _ = VERDICT_BADGE.get(v["verdict_code"], (v["verdict_code"], "gray"))
         with st.container(border=True):
             st.markdown(f"**{v['claim_text']}**")
-            st.markdown(label)
+            st.markdown(verdict_badge(v["verdict_code"]), unsafe_allow_html=True)
             if v.get("confidence_source") == "cached_reuse":
-                st.markdown("♻️ **캐시 히트** — 재검색 없이 축적된 판정을 재사용했습니다 "
-                            f"(이번 조회 검색 실행 {v['search_count']}회).")
+                st.markdown(
+                    cache_badge("HIT", v.get("search_count")) +
+                    " 재검색 없이 축적된 판정을 재사용했습니다.",
+                    unsafe_allow_html=True,
+                )
             elif v.get("confidence_source") == "delta_search":
-                st.markdown("⏱️ **델타 서치** — 축적된 증거 위에 시간 간극만 좁혀 재검색했습니다.")
+                st.markdown(
+                    cache_badge("DELTA") +
+                    " 축적된 증거 위에 시간 간극만 좁혀 재검색했습니다.",
+                    unsafe_allow_html=True,
+                )
             if v.get("required_evidence_note"):
-                st.markdown(f"⚠️ 부분 증거로 종료: {v['required_evidence_note']}")
+                st.markdown(f"부분 증거로 종료: {v['required_evidence_note']}")
             st.write(v.get("reasoning") or "")
             if v.get("evidence_link"):
                 st.markdown(f"**반례 문서**: [{v['evidence_link']}]({v['evidence_link']}) "
@@ -112,9 +118,9 @@ if job_id:
                         st.code(q, language=None)
             # 피드백 — 판정이 이미 출력된 뒤의 비동기 수집 (N2)
             c1, c2, _ = st.columns([1, 1, 6])
-            if c1.button("👍 동의", key=f"agree_{v['verdict_id']}"):
+            if c1.button("동의", key=f"agree_{v['verdict_id']}"):
                 pipeline.submit_feedback(v["verdict_id"], "AGREE")
                 st.toast("피드백이 기록되었습니다.")
-            if c2.button("👎 이의", key=f"dispute_{v['verdict_id']}"):
+            if c2.button("이의", key=f"dispute_{v['verdict_id']}"):
                 pipeline.submit_feedback(v["verdict_id"], "DISPUTE")
                 st.toast("이의가 기록되었습니다. 임계 초과 시 다음 조회 때 자동 재검증됩니다.")
