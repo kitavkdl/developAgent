@@ -73,15 +73,15 @@
 
 ## P2.4 — Independent Category Memory Pyramid
 
-- [ ] `/database` 독립 route 진입 즉시 category explorer 렌더
-- [ ] 원격 main seed의 13개 업종 + `UNCATEGORIZED`를 stable node로 표현
-- [ ] category 선택 시 실제 centroid phrase level을 아래로 펼침
-- [ ] phrase 선택 시 keyword level을 아래로 펼침
-- [ ] 선택 경로 중앙축 + 형제 node fan으로 수직 피라미드 구성
-- [ ] 신규 level node를 stagger cascade animation으로 등장
-- [ ] 평면 DB의 시각적 projection이며 FK hierarchy가 아님을 명시
-- [ ] 모바일·키보드 탐색과 `prefers-reduced-motion` fallback 제공
-- [ ] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
+- [x] `/database` 독립 route 진입 즉시 category explorer 렌더
+- [x] 원격 main seed의 13개 업종 + `UNCATEGORIZED`를 stable node로 표현
+- [x] category 선택 시 실제 centroid phrase level을 아래로 펼침
+- [x] phrase 선택 시 keyword level을 아래로 펼침
+- [x] 선택 경로 중앙축 + 형제 node fan으로 수직 피라미드 구성
+- [x] 신규 level node를 stagger cascade animation으로 등장
+- [x] 평면 DB의 시각적 projection이며 FK hierarchy가 아님을 명시
+- [x] 모바일·키보드 탐색과 `prefers-reduced-motion` fallback 제공
+- [x] `npm run lint`, TypeScript, `npm run build` 및 실제 브라우저 렌더링 확인
 
 ## P3 — 이후 (제출 / 실연동 — 이 단계 비범위)
 
