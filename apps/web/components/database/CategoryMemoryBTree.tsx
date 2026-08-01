@@ -44,8 +44,8 @@ interface EdgeCanvas {
 
 /** L2 pointer hop between existing leaves. */
 const PROBE_HOP_MS = 500;
-/** Create / spawn / L1 hold beat. */
-const LEVEL_HOLD_MS = 5000;
+/** L1 / create / L3+ spawn hold (everything except L2 probe hops). */
+const LEVEL_HOLD_MS = 3000;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
 
 function cascadeStyle(index: number): CascadeStyle {
@@ -327,63 +327,94 @@ export function CategoryMemoryBTree() {
 
     function updateEdges() {
       const treeRect = treeElement.getBoundingClientRect();
-      const groups: Array<{ parentId: string; state: EdgeState }> = [
-        {
-          parentId: "index-root",
-          state: selectedPageId ? "visited" : "current",
-        },
-      ];
+      const links: Array<{
+        parentId: string;
+        childId: string;
+        state: EdgeState;
+      }> = [];
 
-      if (showLeafLevel && selectedPageId) {
-        groups.push({
-          parentId: selectedPageId,
+      // Root → selected branch only (avoid lighting every L1 arrow at once).
+      if (selectedPageId) {
+        links.push({
+          parentId: "index-root",
+          childId: selectedPageId,
           state:
-            selectedCategoryId || leafProbeIndex !== null
-              ? selectedCategoryId
-                ? "visited"
-                : "current"
+            showLeafLevel || selectedCategoryId || leafProbeIndex !== null
+              ? "visited"
               : "current",
         });
       }
-      if (showPhraseLevel && selectedCategoryId) {
-        groups.push({
-          parentId: selectedCategoryId,
-          state: selectedPhrase ? "visited" : "current",
-        });
+
+      // Branch → leaf: only probed / selected targets.
+      if (showLeafLevel && selectedPageId) {
+        if (
+          mode !== "manual" &&
+          demoPhase === "probe" &&
+          leafProbeIndex !== null
+        ) {
+          for (let i = 0; i <= leafProbeIndex; i++) {
+            const childId = visibleLeafIds[i];
+            if (!childId) continue;
+            links.push({
+              parentId: selectedPageId,
+              childId,
+              state: i === leafProbeIndex ? "current" : "visited",
+            });
+          }
+        } else if (selectedCategoryId) {
+          links.push({
+            parentId: selectedPageId,
+            childId: selectedCategoryId,
+            state: selectedPhrase ? "visited" : "current",
+          });
+        }
       }
-      if (showTokenLevel && selectedPhraseNodeId) {
-        groups.push({
-          parentId: selectedPhraseNodeId,
+
+      if (showPhraseLevel && selectedCategoryId && selectedPhraseNodeId) {
+        links.push({
+          parentId: selectedCategoryId,
+          childId: selectedPhraseNodeId,
           state: selectedKeyword ? "visited" : "current",
         });
       }
 
-      const edges = groups.flatMap(({ parentId, state }) => {
+      if (
+        showTokenLevel &&
+        selectedPhraseNodeId &&
+        selectedKeyword &&
+        keywordsToShow.includes(selectedKeyword)
+      ) {
+        links.push({
+          parentId: selectedPhraseNodeId,
+          childId: `token-${keywordsToShow.indexOf(selectedKeyword)}`,
+          state: "current",
+        });
+      }
+
+      const edges = links.flatMap(({ parentId, childId, state }) => {
         const parent = treeElement.querySelector<HTMLElement>(
-          `[data-edge-node="${parentId}"]`,
+          `[data-edge-node="${CSS.escape(parentId)}"]`,
         );
-        const children = Array.from(
-          treeElement.querySelectorAll<HTMLElement>(
-            `[data-edge-parent="${parentId}"]`,
-          ),
+        const child = treeElement.querySelector<HTMLElement>(
+          `[data-edge-node="${CSS.escape(childId)}"]`,
         );
-        if (!parent || children.length === 0) return [];
+        if (!parent || !child) return [];
 
         const parentRect = parent.getBoundingClientRect();
+        const childRect = child.getBoundingClientRect();
         const parentX = parentRect.left - treeRect.left + parentRect.width / 2;
         const parentY = parentRect.bottom - treeRect.top;
+        const childX = childRect.left - treeRect.left + childRect.width / 2;
+        const childY = childRect.top - treeRect.top;
+        const splitY = parentY + Math.max(22, (childY - parentY) * 0.42);
 
-        return children.map((child, index) => {
-          const childRect = child.getBoundingClientRect();
-          const childX = childRect.left - treeRect.left + childRect.width / 2;
-          const childY = childRect.top - treeRect.top;
-          const splitY = parentY + Math.max(22, (childY - parentY) * 0.42);
-          return {
-            id: `${parentId}-${index}`,
+        return [
+          {
+            id: `${parentId}->${childId}`,
             path: `M ${parentX} ${parentY} V ${splitY} H ${childX} V ${childY}`,
             state,
-          };
-        });
+          },
+        ];
       });
 
       setEdgeCanvas({
@@ -407,8 +438,10 @@ export function CategoryMemoryBTree() {
       window.clearTimeout(settledAnimation);
     };
   }, [
-    createdCategoryIds,
+    demoPhase,
+    keywordsToShow,
     leafProbeIndex,
+    mode,
     selectedCategoryId,
     selectedKeyword,
     selectedPageId,
@@ -417,8 +450,7 @@ export function CategoryMemoryBTree() {
     showLeafLevel,
     showPhraseLevel,
     showTokenLevel,
-    spawnedKeywords,
-    spawnedPhrases,
+    visibleLeafIds,
   ]);
 
   function selectPage(pageId: string) {
