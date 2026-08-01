@@ -10,11 +10,18 @@ const TABS: { id: TableTab; label: string }[] = [
   { id: "verdict_versions", label: "verdict_versions" },
 ];
 
+const EMPTY_FLASH_IDS = new Set<string>();
+
 function useFlashIds(ids: string[]): Set<string> {
   const seen = useRef(new Set<string>());
   const [flashing, setFlashing] = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    if (ids.length === 0) {
+      seen.current.clear();
+      return;
+    }
+
     const newcomers = ids.filter((id) => !seen.current.has(id));
     if (!newcomers.length) return;
     for (const id of newcomers) seen.current.add(id);
@@ -29,14 +36,7 @@ function useFlashIds(ids: string[]): Set<string> {
     return () => clearTimeout(t);
   }, [ids]);
 
-  useEffect(() => {
-    if (ids.length === 0) {
-      seen.current = new Set();
-      setFlashing(new Set());
-    }
-  }, [ids.length]);
-
-  return flashing;
+  return ids.length === 0 ? EMPTY_FLASH_IDS : flashing;
 }
 
 export function SchemaTablePanel({
