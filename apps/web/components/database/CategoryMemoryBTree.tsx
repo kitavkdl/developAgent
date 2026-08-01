@@ -34,9 +34,41 @@ interface EdgeCanvas {
   edges: TreeEdge[];
 }
 
-const DEMO_START_DELAY_MS = 700;
-const DEMO_STEP_MS = 1150;
+/** Hold each explored level before selecting the next child. Cascade timing is ignored. */
+const LEVEL_HOLD_MS = 3000;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
+
+/** Cumulative selection at each autoplay beat — apply immediately so children mount with the pick. */
+const DEMO_LEVEL_SELECTIONS = [
+  {
+    pageId: DEMO_LOOKUP.branchId,
+    categoryId: null,
+    phrase: null,
+    keyword: null,
+    status: "Range hit · follow ptr 0x0118",
+  },
+  {
+    pageId: DEMO_LOOKUP.branchId,
+    categoryId: DEMO_LOOKUP.categoryId,
+    phrase: null,
+    keyword: null,
+    status: "Leaf hit · BEAUTY_PERSONAL_CARE",
+  },
+  {
+    pageId: DEMO_LOOKUP.branchId,
+    categoryId: DEMO_LOOKUP.categoryId,
+    phrase: DEMO_LOOKUP.phrase,
+    keyword: null,
+    status: "Payload probe · centroid phrases",
+  },
+  {
+    pageId: DEMO_LOOKUP.branchId,
+    categoryId: DEMO_LOOKUP.categoryId,
+    phrase: DEMO_LOOKUP.phrase,
+    keyword: DEMO_LOOKUP.keyword,
+    status: "Token match · 앰플",
+  },
+] as const;
 
 function cascadeStyle(index: number): CascadeStyle {
   return { "--node-index": index };
@@ -67,12 +99,18 @@ function ScanCursor({ label }: { label: string }) {
 export function CategoryMemoryBTree() {
   const [mode, setMode] = useState<ScanMode>("auto");
   const [demoStep, setDemoStep] = useState(0);
-  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
-    null,
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(
+    DEMO_LEVEL_SELECTIONS[0].pageId,
   );
-  const [selectedPhrase, setSelectedPhrase] = useState<string | null>(null);
-  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
+    DEMO_LEVEL_SELECTIONS[0].categoryId,
+  );
+  const [selectedPhrase, setSelectedPhrase] = useState<string | null>(
+    DEMO_LEVEL_SELECTIONS[0].phrase,
+  );
+  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(
+    DEMO_LEVEL_SELECTIONS[0].keyword,
+  );
 
   const treeRef = useRef<HTMLElement>(null);
   const leafLevelRef = useRef<HTMLDivElement>(null);
@@ -115,18 +153,25 @@ export function CategoryMemoryBTree() {
   useEffect(() => {
     if (mode !== "auto") return;
 
-    const delay = demoStep === 0 ? DEMO_START_DELAY_MS : DEMO_STEP_MS;
+    const selection = DEMO_LEVEL_SELECTIONS[demoStep];
+    if (!selection) {
+      setMode("complete");
+      return;
+    }
+
+    // Select as soon as this level is active — child nodes mount in the same beat.
+    setSelectedPageId(selection.pageId);
+    setSelectedCategoryId(selection.categoryId);
+    setSelectedPhrase(selection.phrase);
+    setSelectedKeyword(selection.keyword);
+
     const timer = window.setTimeout(() => {
-      const nextStep = demoStep + 1;
-
-      if (nextStep === 1) setSelectedPageId(DEMO_LOOKUP.branchId);
-      if (nextStep === 2) setSelectedCategoryId(DEMO_LOOKUP.categoryId);
-      if (nextStep === 3) setSelectedPhrase(DEMO_LOOKUP.phrase);
-      if (nextStep === 4) setSelectedKeyword(DEMO_LOOKUP.keyword);
-
-      if (nextStep <= 4) setDemoStep(nextStep);
-      else setMode("complete");
-    }, delay);
+      if (demoStep >= DEMO_LEVEL_SELECTIONS.length - 1) {
+        setMode("complete");
+        return;
+      }
+      setDemoStep(demoStep + 1);
+    }, LEVEL_HOLD_MS);
 
     return () => window.clearTimeout(timer);
   }, [demoStep, mode]);
@@ -254,10 +299,11 @@ export function CategoryMemoryBTree() {
   }
 
   function replayDemo() {
-    setSelectedPageId(null);
-    setSelectedCategoryId(null);
-    setSelectedPhrase(null);
-    setSelectedKeyword(null);
+    const first = DEMO_LEVEL_SELECTIONS[0];
+    setSelectedPageId(first.pageId);
+    setSelectedCategoryId(first.categoryId);
+    setSelectedPhrase(first.phrase);
+    setSelectedKeyword(first.keyword);
     setDemoStep(0);
     setMode("auto");
     const reducedMotion = window.matchMedia(
@@ -276,13 +322,7 @@ export function CategoryMemoryBTree() {
         ? "Manual inspection · autoplay stopped"
         : mode === "complete"
           ? "Leaf payload match · 앰플"
-          : [
-              "Reading root separator keys",
-              "Following child pointer 0x0118",
-              "Comparing BEAUTY_PERSONAL_CARE",
-              "Probing centroid source text",
-              "Semantic token hit · 앰플",
-            ][demoStep];
+          : (DEMO_LEVEL_SELECTIONS[demoStep]?.status ?? "AI index scan");
 
   return (
     <section
