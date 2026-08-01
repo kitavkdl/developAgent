@@ -30,7 +30,7 @@ export function AgentTracePanel({
       </header>
       <ol className="trace-list" ref={listRef}>
         {traces.length === 0 ? (
-          <li className="trace-list__empty">Waiting for tool stream…</li>
+          <li className="trace-list__empty">Waiting for pipeline stream…</li>
         ) : (
           traces.map((line) => {
             const relatedHot =
@@ -41,13 +41,21 @@ export function AgentTracePanel({
               <li
                 key={line.id}
                 data-kind={line.kind}
+                data-provider={line.provider}
                 className={active ? "is-active" : undefined}
               >
-                {line.agent_label ? (
-                  <span className="trace-agent">{line.agent_label}</span>
-                ) : (
-                  <span className="trace-agent">System</span>
-                )}
+                <span className="trace-meta">
+                  {line.agent_label ? (
+                    <span className="trace-agent">{line.agent_label}</span>
+                  ) : (
+                    <span className="trace-agent">System</span>
+                  )}
+                  {line.provider ? (
+                    <span className="trace-provider" data-provider={line.provider}>
+                      {line.provider}
+                    </span>
+                  ) : null}
+                </span>
                 <code>{line.summary}</code>
               </li>
             );

@@ -1,26 +1,28 @@
-import type { DemoScenarioId, EvidenceUnitView } from "@/types/domain";
+import type { CandidateView, DemoScenarioId } from "@/types/domain";
 import type { ResearchEvent } from "@/types/events";
 
 function iso(offsetMs: number): string {
   return new Date(Date.UTC(2026, 7, 1, 12, 0, 0) + offsetMs).toISOString();
 }
 
-function baseEvidence(
-  partial: Partial<EvidenceUnitView> &
-    Pick<EvidenceUnitView, "evidence_id" | "source_id" | "title">,
-): EvidenceUnitView {
+function candidate(
+  partial: Partial<CandidateView> &
+    Pick<CandidateView, "candidate_id" | "title" | "excerpt_or_summary">,
+): CandidateView {
+  const check = partial.applicability_check ?? {
+    scope_match: true,
+    metric_match: true,
+    timeframe_match: true,
+    target_match: true,
+  };
   return {
     claim_id: "claim-1",
-    source_snapshot_id: `${partial.source_id}-snap`,
-    url: partial.url ?? "https://example.org/paper",
-    access_level: "snippet",
-    relation: "direct",
-    direction: "supports",
-    matched_scope: { subject: "product X", outcome: "efficacy" },
-    excerpt_or_summary:
-      partial.excerpt_or_summary ??
-      "Snippet-level excerpt supporting the scoped claim.",
-    extracted_at: iso(4000),
+    source_id: partial.source_id ?? `src-${partial.candidate_id}`,
+    url: partial.url ?? "https://example.org/counterexample",
+    published_at: partial.published_at ?? "2024-06-01",
+    evaluated_at: iso(4000),
+    passes_gate: Object.values(check).every(Boolean),
+    applicability_check: check,
     ...partial,
   };
 }
@@ -32,12 +34,8 @@ function withJob(
   return events.map((e) => ({ ...e, job_id: jobId })) as ResearchEvent[];
 }
 
-export function buildScenarioEvents(
-  jobId: string,
-  query: string,
-  scenario: DemoScenarioId,
-): ResearchEvent[] {
-  const commonStart = withJob(jobId, [
+function commonHead(jobId: string, query: string) {
+  return withJob(jobId, [
     {
       sequence: 1,
       type: "job.created",
@@ -46,199 +44,348 @@ export function buildScenarioEvents(
     },
     {
       sequence: 2,
-      type: "claim.normalized",
+      type: "intake.completed",
+      created_at: iso(200),
+      payload: { source_type: "TEXT", brand: "DemoBrand", product: "DemoProduct" },
+    },
+    {
+      sequence: 3,
+      type: "claim.extracted",
       created_at: iso(400),
-      payload: {
-        claim_id: "claim-1",
-        signature_summary: query.slice(0, 80) || "demo claim",
-      },
+      payload: { claim_id: "claim-1", text: query.slice(0, 160) || "demo claim" },
     },
   ]);
+}
 
-  if (scenario === "fresh") {
+export function buildScenarioEvents(
+  jobId: string,
+  query: string,
+  scenario: DemoScenarioId,
+): ResearchEvent[] {
+  const head = commonHead(jobId, query);
+
+  if (scenario === "puffery") {
     return [
-      ...commonStart,
+      ...head,
       ...withJob(jobId, [
         {
-          sequence: 3,
-          type: "cache.candidate",
-          created_at: iso(700),
-          payload: { candidate_claim_ids: ["claim-cached-1"], scores: [0.91] },
-        },
-        {
           sequence: 4,
-          type: "cache.decision",
-          created_at: iso(900),
+          type: "claim.triaged",
+          created_at: iso(700),
           payload: {
-            decision: "HIT_FRESH",
-            reused_evidence_count: 2,
-            reason_codes: ["scope_eligible", "channels_fresh"],
+            claim_id: "claim-1",
+            triage: "PUFFERY",
+            reason: "Subjective taste claim — not falsifiable",
           },
         },
         {
           sequence: 5,
-          type: "evidence.extracted",
-          created_at: iso(1200),
-          payload: baseEvidence({
-            evidence_id: "ev-cached-1",
-            source_id: "src-1",
-            title: "Cached scholar review (2024)",
-            url: "https://doi.org/10.1000/demo.fresh.1",
-            access_level: "abstract",
-            excerpt_or_summary:
-              "Previously collected abstract reused under fresh TTL.",
-          }),
+          type: "verdict.assembled",
+          created_at: iso(900),
+          payload: {
+            verdict: "PUFFERY",
+            candidate_ids: [],
+            query_count: 0,
+            summary:
+              "주관적 과장(PUFFERY)으로 분류되어 검색을 수행하지 않았습니다. tool_call 0건.",
+            reason_codes: ["triage_puffery", "no_search"],
+          },
         },
         {
           sequence: 6,
-          type: "evidence.extracted",
-          created_at: iso(1500),
-          payload: baseEvidence({
-            evidence_id: "ev-cached-2",
-            source_id: "src-2",
-            title: "Official product monograph",
-            url: "https://example.org/label",
-            access_level: "snippet",
-            relation: "broader",
-            direction: "supports",
-          }),
-        },
-        {
-          sequence: 7,
-          type: "verdict.updated",
-          created_at: iso(1900),
-          payload: {
-            verdict: "Partial",
-            evidence_ids: ["ev-cached-1", "ev-cached-2"],
-            reason_codes: ["reused_fresh", "broader_scope_present"],
-          },
-        },
-        {
-          sequence: 8,
-          type: "answer.delta",
-          created_at: iso(2100),
-          payload: {
-            text_delta:
-              "Eligible cached evidence was reused (2 units). A new contextual answer was generated without external search. ",
-            citation_evidence_ids: ["ev-cached-1", "ev-cached-2"],
-          },
-        },
-        {
-          sequence: 9,
-          type: "answer.delta",
-          created_at: iso(2300),
-          payload: {
-            text_delta:
-              "Scope is only partially covered, so the verdict is Partial—not a product-specific Direct claim.",
-          },
-        },
-        {
-          sequence: 10,
           type: "job.completed",
-          created_at: iso(2500),
+          created_at: iso(1100),
           payload: { status: "complete" },
         },
       ]),
     ];
   }
 
-  if (scenario === "stale") {
+  if (scenario === "hit") {
     return [
-      ...commonStart,
+      ...head,
       ...withJob(jobId, [
         {
-          sequence: 3,
-          type: "cache.candidate",
-          created_at: iso(600),
-          payload: { candidate_claim_ids: ["claim-cached-1"], scores: [0.88] },
-        },
-        {
           sequence: 4,
-          type: "cache.decision",
-          created_at: iso(800),
+          type: "claim.triaged",
+          created_at: iso(700),
           payload: {
-            decision: "HIT_STALE",
-            reused_evidence_count: 1,
-            reason_codes: ["scope_eligible", "web_channel_expired"],
+            claim_id: "claim-1",
+            triage: "FALSIFIABLE",
+            claim_type: "SUPERLATIVE_FIRST",
           },
         },
         {
           sequence: 5,
-          type: "evidence.extracted",
-          created_at: iso(1000),
-          payload: baseEvidence({
-            evidence_id: "ev-stale-1",
-            source_id: "src-stale",
-            title: "Previously checked source",
-            url: "https://example.org/old",
-            access_level: "snippet",
-            excerpt_or_summary: "Shown immediately as previously checked.",
-          }),
+          type: "route.decided",
+          created_at: iso(900),
+          payload: { claim_id: "claim-1", route: "GENERAL" },
         },
         {
           sequence: 6,
-          type: "tool.call",
-          created_at: iso(1400),
+          type: "industry.classified",
+          created_at: iso(1100),
           payload: {
-            tool_name: "web_search",
-            agent_label: "Web Agent",
-            args_redacted: { query: `${query} latest`, max_results: 5 },
-            search_run_id: "run-web-1",
+            category_id: "cat-beauty",
+            label: "화장품",
+            is_new: false,
+            similarity: 0.91,
           },
         },
         {
           sequence: 7,
-          type: "tool.result",
-          created_at: iso(2000),
+          type: "cache.decision",
+          created_at: iso(1300),
           payload: {
-            tool_name: "web_search",
-            ok: true,
-            result_summary: "3 current web sources (redacted)",
-            provider_request_id: "web-req-1",
-            search_run_id: "run-web-1",
+            decision: "HIT",
+            reused_candidate_count: 1,
+            reason_codes: ["canonical_match", "ttl_fresh"],
           },
         },
         {
           sequence: 8,
-          type: "evidence.extracted",
-          created_at: iso(2400),
-          payload: baseEvidence({
-            evidence_id: "ev-fresh-web",
-            source_id: "src-web-1",
-            title: "Updated official notice (2026)",
-            url: "https://example.org/notice-2026",
-            access_level: "snippet",
-            direction: "supports",
-            excerpt_or_summary: "Delta web evidence after stale refresh.",
+          type: "candidate.evaluated",
+          created_at: iso(1500),
+          payload: candidate({
+            candidate_id: "cand-cached-1",
+            source_id: "src-cached-1",
+            title: "Cached prior counterexample (2024)",
+            url: "https://example.org/cached-refutation",
+            published_at: "2024-03-12",
+            excerpt_or_summary:
+              "Previously verified counterexample reused under fresh TTL.",
           }),
         },
         {
           sequence: 9,
-          type: "verdict.updated",
-          created_at: iso(2800),
+          type: "verdict.assembled",
+          created_at: iso(1800),
           payload: {
-            verdict: "Direct",
-            evidence_ids: ["ev-stale-1", "ev-fresh-web"],
-            reason_codes: ["delta_refresh_ok", "scope_matched"],
+            verdict: "REFUTED",
+            candidate_ids: ["cand-cached-1"],
+            query_count: 0,
+            summary:
+              "동일 업종 파티션에서 신선한 캐시 반례를 재사용했습니다. 추가 LINER 검색 없음.",
+            reason_codes: ["cache_hit", "gate_passed"],
           },
         },
         {
           sequence: 10,
-          type: "answer.delta",
-          created_at: iso(3000),
+          type: "job.completed",
+          created_at: iso(2000),
+          payload: { status: "complete" },
+        },
+      ]),
+    ];
+  }
+
+  if (scenario === "delta") {
+    return [
+      ...head,
+      ...withJob(jobId, [
+        {
+          sequence: 4,
+          type: "claim.triaged",
+          created_at: iso(600),
           payload: {
-            text_delta:
-              "Cached cards were shown first as previously checked, then replaced after a delta web search. ",
-            citation_evidence_ids: ["ev-stale-1", "ev-fresh-web"],
+            claim_id: "claim-1",
+            triage: "FALSIFIABLE",
+            claim_type: "RANKING",
+          },
+        },
+        {
+          sequence: 5,
+          type: "route.decided",
+          created_at: iso(800),
+          payload: { claim_id: "claim-1", route: "GENERAL" },
+        },
+        {
+          sequence: 6,
+          type: "industry.classified",
+          created_at: iso(1000),
+          payload: {
+            category_id: "cat-beauty",
+            label: "화장품",
+            is_new: false,
+            similarity: 0.88,
+          },
+        },
+        {
+          sequence: 7,
+          type: "cache.decision",
+          created_at: iso(1200),
+          payload: {
+            decision: "DELTA",
+            reused_candidate_count: 1,
+            reason_codes: ["canonical_match", "ttl_expired"],
+          },
+        },
+        {
+          sequence: 8,
+          type: "candidate.evaluated",
+          created_at: iso(1400),
+          payload: candidate({
+            candidate_id: "cand-stale-1",
+            source_id: "src-stale",
+            title: "Previously checked source",
+            url: "https://example.org/old",
+            published_at: "2023-01-10",
+            excerpt_or_summary: "Shown first as previously checked (dim).",
+          }),
+        },
+        {
+          sequence: 9,
+          type: "tool.call",
+          created_at: iso(1700),
+          payload: {
+            tool_name: "liner_web_search",
+            agent_label: "Web Agent",
+            provider: "liner",
+            args_redacted: { query: `${query} after:2024-01-01`, date_from: "2024-01-01" },
+            search_run_id: "run-web-1",
+          },
+        },
+        {
+          sequence: 10,
+          type: "tool.result",
+          created_at: iso(2300),
+          payload: {
+            tool_name: "liner_web_search",
+            provider: "liner",
+            ok: true,
+            result_summary: "2 delta web hits (redacted)",
+            provider_request_id: "liner-web-d1",
+            search_run_id: "run-web-1",
           },
         },
         {
           sequence: 11,
-          type: "answer.delta",
+          type: "candidate.evaluated",
+          created_at: iso(2700),
+          payload: candidate({
+            candidate_id: "cand-delta-1",
+            source_id: "src-web-1",
+            title: "Updated market ranking notice (2025)",
+            url: "https://example.org/notice-2025",
+            published_at: "2025-11-02",
+            excerpt_or_summary: "Delta counterexample after stale refresh.",
+          }),
+        },
+        {
+          sequence: 12,
+          type: "verdict.assembled",
+          created_at: iso(3100),
+          payload: {
+            verdict: "REFUTED",
+            candidate_ids: ["cand-stale-1", "cand-delta-1"],
+            query_count: 1,
+            summary:
+              "TTL 초과로 델타 검색을 수행했고, 필수 필드를 충족하는 반례가 확인되었습니다.",
+            reason_codes: ["delta_refresh", "gate_passed"],
+          },
+        },
+        {
+          sequence: 13,
+          type: "job.completed",
+          created_at: iso(3300),
+          payload: { status: "complete" },
+        },
+      ]),
+    ];
+  }
+
+  if (scenario === "scholar") {
+    return [
+      ...head,
+      ...withJob(jobId, [
+        {
+          sequence: 4,
+          type: "claim.triaged",
+          created_at: iso(700),
+          payload: {
+            claim_id: "claim-1",
+            triage: "FALSIFIABLE",
+            claim_type: "CLINICAL_COMPLETION",
+          },
+        },
+        {
+          sequence: 5,
+          type: "route.decided",
+          created_at: iso(900),
+          payload: { claim_id: "claim-1", route: "SCIENTIFIC" },
+        },
+        {
+          sequence: 6,
+          type: "industry.classified",
+          created_at: iso(1100),
+          payload: {
+            category_id: "cat-pharma",
+            label: "건강기능식품",
+            is_new: false,
+            similarity: 0.86,
+          },
+        },
+        {
+          sequence: 7,
+          type: "cache.decision",
+          created_at: iso(1300),
+          payload: { decision: "MISS", reason_codes: ["no_eligible_candidate"] },
+        },
+        {
+          sequence: 8,
+          type: "tool.call",
+          created_at: iso(1600),
+          payload: {
+            tool_name: "liner_scholar_search",
+            agent_label: "Scholar Agent",
+            provider: "liner",
+            args_redacted: { query, channel: "scholar" },
+            search_run_id: "run-scholar-1",
+          },
+        },
+        {
+          sequence: 9,
+          type: "tool.result",
+          created_at: iso(2400),
+          payload: {
+            tool_name: "liner_scholar_search",
+            provider: "liner",
+            ok: true,
+            result_summary: "3 scholar hits (snippet-level)",
+            provider_request_id: "liner-sch-1",
+            search_run_id: "run-scholar-1",
+          },
+        },
+        {
+          sequence: 10,
+          type: "candidate.evaluated",
+          created_at: iso(2800),
+          payload: candidate({
+            candidate_id: "cand-sch-1",
+            source_id: "src-sch-1",
+            title: "RCT abstract without matching endpoint",
+            url: "https://doi.org/10.1000/demo.scholar.1",
+            published_at: "2022-08-01",
+            excerpt_or_summary: "Metric does not match advertised clinical claim.",
+            applicability_check: {
+              scope_match: true,
+              metric_match: false,
+              timeframe_match: true,
+              target_match: true,
+            },
+          }),
+        },
+        {
+          sequence: 11,
+          type: "verdict.assembled",
           created_at: iso(3200),
           payload: {
-            text_delta:
-              "With refreshed coverage, the aggregated verdict is Direct.",
+            verdict: "NOT_REFUTED",
+            candidate_ids: ["cand-sch-1"],
+            query_count: 1,
+            summary:
+              "우리가 실행한 1개 Scholar 쿼리에서 falsifier 기준을 전부 충족하는 반례를 찾지 못했습니다. 이 결과는 주장이 사실임을 뜻하지 않습니다.",
+            reason_codes: ["gate_failed", "metric_mismatch"],
           },
         },
         {
@@ -251,227 +398,142 @@ export function buildScenarioEvents(
     ];
   }
 
-  if (scenario === "seed") {
-    return [
-      ...commonStart,
-      ...withJob(jobId, [
-        {
-          sequence: 3,
-          type: "cache.candidate",
-          created_at: iso(700),
-          payload: { candidate_claim_ids: ["claim-near-1"], scores: [0.72] },
-        },
-        {
-          sequence: 4,
-          type: "cache.decision",
-          created_at: iso(900),
-          payload: {
-            decision: "SEED_ONLY",
-            reason_codes: ["partial_scope"],
-          },
-        },
-        {
-          sequence: 5,
-          type: "tool.call",
-          created_at: iso(1200),
-          payload: {
-            tool_name: "scholar_search",
-            agent_label: "Scholar Agent",
-            args_redacted: { query, channel: "direct" },
-            search_run_id: "run-scholar-1",
-          },
-        },
-        {
-          sequence: 6,
-          type: "tool.result",
-          created_at: iso(1800),
-          payload: {
-            tool_name: "scholar_search",
-            ok: true,
-            result_summary: "2 scholar hits (snippet)",
-            search_run_id: "run-scholar-1",
-          },
-        },
-        {
-          sequence: 7,
-          type: "evidence.extracted",
-          created_at: iso(2200),
-          payload: baseEvidence({
-            evidence_id: "ev-seed-1",
-            source_id: "src-seed-1",
-            title: "Ingredient-family study",
-            relation: "broader",
-            direction: "supports",
-            access_level: "snippet",
-          }),
-        },
-        {
-          sequence: 8,
-          type: "verdict.updated",
-          created_at: iso(2600),
-          payload: {
-            verdict: "Partial",
-            evidence_ids: ["ev-seed-1"],
-            reason_codes: ["seed_plan_only", "no_old_verdict_reuse"],
-          },
-        },
-        {
-          sequence: 9,
-          type: "answer.delta",
-          created_at: iso(2800),
-          payload: {
-            text_delta:
-              "Near-match cache seeded the research plan only. Prior verdicts were not reused. ",
-            citation_evidence_ids: ["ev-seed-1"],
-          },
-        },
-        {
-          sequence: 10,
-          type: "job.completed",
-          created_at: iso(3000),
-          payload: { status: "complete" },
-        },
-      ]),
-    ];
-  }
-
-  // miss (default full loop)
+  // miss (default full GENERAL loop → REFUTED)
   return [
-    ...commonStart,
+    ...head,
     ...withJob(jobId, [
       {
-        sequence: 3,
-        type: "cache.candidate",
-        created_at: iso(600),
-        payload: { candidate_claim_ids: [], scores: [] },
-      },
-      {
         sequence: 4,
-        type: "cache.decision",
-        created_at: iso(800),
-        payload: { decision: "MISS", reason_codes: ["no_eligible_candidate"] },
+        type: "claim.triaged",
+        created_at: iso(600),
+        payload: {
+          claim_id: "claim-1",
+          triage: "FALSIFIABLE",
+          claim_type: "SUPERLATIVE_FIRST",
+        },
       },
       {
         sequence: 5,
-        type: "tool.call",
-        created_at: iso(1100),
-        payload: {
-          tool_name: "scholar_search",
-          agent_label: "Scholar Agent",
-          args_redacted: { query, channel: "direct" },
-          search_run_id: "run-scholar-1",
-        },
+        type: "route.decided",
+        created_at: iso(800),
+        payload: { claim_id: "claim-1", route: "GENERAL" },
       },
       {
         sequence: 6,
-        type: "tool.result",
-        created_at: iso(1700),
+        type: "industry.classified",
+        created_at: iso(1000),
         payload: {
-          tool_name: "scholar_search",
-          ok: true,
-          result_summary: "4 scholar results (snippet-level)",
-          provider_request_id: "liner-req-42",
-          search_run_id: "run-scholar-1",
+          category_id: "cat-beauty",
+          label: "화장품",
+          is_new: true,
+          similarity: null,
         },
       },
       {
         sequence: 7,
-        type: "tool.call",
-        created_at: iso(1900),
-        payload: {
-          tool_name: "web_search",
-          agent_label: "Web Agent",
-          args_redacted: { query, channel: "current_web" },
-          search_run_id: "run-web-1",
-        },
+        type: "cache.decision",
+        created_at: iso(1200),
+        payload: { decision: "MISS", reason_codes: ["no_eligible_candidate"] },
       },
       {
         sequence: 8,
-        type: "tool.result",
-        created_at: iso(2400),
+        type: "tool.call",
+        created_at: iso(1500),
         payload: {
-          tool_name: "web_search",
-          ok: true,
-          result_summary: "5 web results with visible citations",
+          tool_name: "liner_web_search",
+          agent_label: "Web Agent",
+          provider: "liner",
+          args_redacted: { query: `${query} 국내 최초 선행`, max_results: 5 },
           search_run_id: "run-web-1",
         },
       },
       {
         sequence: 9,
-        type: "evidence.extracted",
-        created_at: iso(2700),
-        payload: baseEvidence({
-          evidence_id: "ev-1",
-          source_id: "src-s1",
-          title: "Randomized trial abstract",
-          url: "https://doi.org/10.1000/demo.miss.1",
-          access_level: "snippet",
-          relation: "direct",
-          direction: "supports",
-        }),
+        type: "tool.result",
+        created_at: iso(2200),
+        payload: {
+          tool_name: "liner_web_search",
+          provider: "liner",
+          ok: true,
+          result_summary: "5 web results with visible citations",
+          provider_request_id: "liner-web-42",
+          search_run_id: "run-web-1",
+        },
       },
       {
         sequence: 10,
-        type: "evidence.extracted",
-        created_at: iso(3000),
-        payload: baseEvidence({
-          evidence_id: "ev-2",
-          source_id: "src-w1",
-          title: "Manufacturer FAQ",
-          url: "https://example.org/faq",
-          access_level: "snippet",
-          relation: "narrower",
-          direction: "mixed",
-        }),
+        type: "tool.call",
+        created_at: iso(2400),
+        payload: {
+          tool_name: "liner_web_search",
+          agent_label: "Web Agent",
+          provider: "liner",
+          args_redacted: { query: `${query} 경쟁사 출시`, max_results: 5 },
+          search_run_id: "run-web-2",
+        },
       },
       {
         sequence: 11,
-        type: "evidence.extracted",
-        created_at: iso(3300),
-        payload: baseEvidence({
-          evidence_id: "ev-3",
-          source_id: "src-s2",
-          title: "Counter-analysis preprint",
-          url: "https://doi.org/10.1000/demo.miss.2",
-          access_level: "snippet",
-          relation: "conflicting",
-          direction: "refutes",
-          excerpt_or_summary: "Snippet that conflicts on outcome measurement.",
-        }),
+        type: "tool.result",
+        created_at: iso(3000),
+        payload: {
+          tool_name: "liner_web_search",
+          provider: "liner",
+          ok: true,
+          result_summary: "4 web results",
+          search_run_id: "run-web-2",
+        },
       },
       {
         sequence: 12,
-        type: "verdict.updated",
-        created_at: iso(3700),
-        payload: {
-          verdict: "Mixed",
-          evidence_ids: ["ev-1", "ev-2", "ev-3"],
-          reason_codes: ["support_and_refute", "snippet_access_only"],
-        },
+        type: "candidate.evaluated",
+        created_at: iso(3300),
+        payload: candidate({
+          candidate_id: "cand-1",
+          source_id: "src-1",
+          title: "Prior launch article (2019)",
+          url: "https://example.org/prior-2019",
+          published_at: "2019-04-18",
+          excerpt_or_summary:
+            "Earlier product launch in the same category undermines '국내 최초'.",
+        }),
       },
       {
         sequence: 13,
-        type: "answer.delta",
-        created_at: iso(3900),
-        payload: {
-          text_delta:
-            "Bounded Scholar and Web research found supporting and conflicting snippet-level evidence. ",
-          citation_evidence_ids: ["ev-1", "ev-3"],
-        },
+        type: "candidate.evaluated",
+        created_at: iso(3600),
+        payload: candidate({
+          candidate_id: "cand-2",
+          source_id: "src-2",
+          title: "Undated blog post",
+          url: "https://example.org/undated",
+          published_at: null,
+          excerpt_or_summary: "Similar claim but no publish date — timeframe fails.",
+          applicability_check: {
+            scope_match: true,
+            metric_match: true,
+            timeframe_match: false,
+            target_match: true,
+          },
+        }),
       },
       {
         sequence: 14,
-        type: "answer.delta",
-        created_at: iso(4100),
+        type: "verdict.assembled",
+        created_at: iso(4000),
         payload: {
-          text_delta:
-            "The deterministic aggregate is Mixed. Access level remains snippet—full-study claims are not asserted.",
+          verdict: "REFUTED",
+          candidate_ids: ["cand-1"],
+          query_count: 2,
+          summary:
+            "필수 매치 필드를 모두 충족하는 반례 문서가 확인되어 REFUTED입니다. (게이트 미통과 후보는 승격되지 않음)",
+          reason_codes: ["gate_passed", "prior_instance"],
         },
       },
       {
         sequence: 15,
         type: "job.completed",
-        created_at: iso(4300),
+        created_at: iso(4200),
         payload: { status: "complete" },
       },
     ]),
@@ -484,8 +546,11 @@ export function inferScenarioFromQuery(
 ): DemoScenarioId {
   if (explicit) return explicit;
   const q = query.toLowerCase();
-  if (/\b(latest|today|current|new)\b/.test(q)) return "stale";
-  if (/\b(reuse|cached|again)\b/.test(q)) return "fresh";
-  if (/\b(family|ingredient|similar)\b/.test(q)) return "seed";
+  if (/\b(맛있|최고로 맛|feel|감성)\b/.test(q) || /맛있다/.test(query)) {
+    return "puffery";
+  }
+  if (/\b(latest|today|current|new|최신)\b/.test(q)) return "delta";
+  if (/\b(reuse|cached|again|다시)\b/.test(q)) return "hit";
+  if (/\b(clinical|임상|과학적으로|논문)\b/.test(q)) return "scholar";
   return "miss";
 }

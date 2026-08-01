@@ -32,7 +32,7 @@ export function SearchBar({
         id="claim-query"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Enter a claim or question to research…"
+        placeholder="Enter an ad claim to counter-check…"
         autoComplete="off"
         disabled={busy}
       />

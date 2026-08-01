@@ -64,6 +64,9 @@ export class DummyResearchClient implements ResearchClient {
       job_id: job.job_id,
       query: job.query,
       status: "streaming",
+      cache_decision: undefined,
+      verdict: undefined,
+      summary: undefined,
     };
   }
 

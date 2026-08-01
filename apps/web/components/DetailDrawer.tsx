@@ -1,5 +1,5 @@
 import type { JobViewModel } from "@/lib/job-reducer";
-import type { EvidenceUnitView } from "@/types/domain";
+import type { CandidateView } from "@/types/domain";
 
 export function DetailDrawer({
   model,
@@ -12,18 +12,15 @@ export function DetailDrawer({
 }) {
   if (!selectedEntityId) return null;
 
-  const evidence = model.tables.evidence_units.find(
-    (e: EvidenceUnitView) => e.evidence_id === selectedEntityId,
+  const candidate = model.tables.candidates.find(
+    (e: CandidateView) => e.candidate_id === selectedEntityId,
   );
-  const source = model.tables.sources.find(
-    (s: { id: string }) => s.id === selectedEntityId,
-  );
-  const claim = model.tables.claims.find(
-    (c: { id: string }) => c.id === selectedEntityId,
-  );
+  const source = model.tables.sources.find((s) => s.id === selectedEntityId);
+  const claim = model.tables.claims.find((c) => c.id === selectedEntityId);
   const verdict = model.tables.verdict_versions.find(
-    (v: { id: string }) => v.id === selectedEntityId,
+    (v) => v.id === selectedEntityId,
   );
+  const run = model.tables.search_runs.find((r) => r.id === selectedEntityId);
 
   return (
     <aside className="detail-drawer" aria-live="polite">
@@ -34,49 +31,47 @@ export function DetailDrawer({
         </button>
       </header>
 
-      {evidence ? (
+      {candidate ? (
         <dl>
-          <dt>evidence_id</dt>
-          <dd>{evidence.evidence_id}</dd>
-          <dt>claim_id</dt>
-          <dd>{evidence.claim_id}</dd>
+          <dt>candidate_id</dt>
+          <dd>{candidate.candidate_id}</dd>
           <dt>title</dt>
-          <dd>{evidence.title ?? "—"}</dd>
+          <dd>{candidate.title ?? "—"}</dd>
           <dt>url</dt>
           <dd>
-            {evidence.url ? (
-              <a href={evidence.url} target="_blank" rel="noreferrer">
-                {evidence.url}
+            {candidate.url ? (
+              <a href={candidate.url} target="_blank" rel="noreferrer">
+                {candidate.url}
               </a>
             ) : (
               "—"
             )}
           </dd>
-          <dt>access_level</dt>
+          <dt>published_at</dt>
+          <dd>{candidate.published_at ?? "null (timeframe not inferred)"}</dd>
+          <dt>passes_gate</dt>
+          <dd>{candidate.passes_gate ? "true" : "false"}</dd>
+          <dt>applicability_check</dt>
           <dd>
-            <strong>{evidence.access_level}</strong>
+            <ul className="check-list">
+              {Object.entries(candidate.applicability_check).map(([k, v]) => (
+                <li key={k} data-ok={v}>
+                  {k}: {String(v)}
+                </li>
+              ))}
+            </ul>
           </dd>
-          <dt>relation</dt>
-          <dd>{evidence.relation}</dd>
-          <dt>direction</dt>
-          <dd>{evidence.direction}</dd>
-          <dt>extracted_at</dt>
-          <dd>{evidence.extracted_at}</dd>
-          <dt>excerpt_or_summary</dt>
-          <dd>{evidence.excerpt_or_summary}</dd>
+          <dt>excerpt</dt>
+          <dd>{candidate.excerpt_or_summary}</dd>
         </dl>
       ) : null}
 
-      {source && !evidence ? (
+      {source && !candidate ? (
         <dl>
           <dt>source_id</dt>
           <dd>{source.id}</dd>
           <dt>title</dt>
           <dd>{source.title}</dd>
-          <dt>access_level</dt>
-          <dd>
-            <strong>{source.access_level}</strong>
-          </dd>
           <dt>url</dt>
           <dd>
             {source.url ? (
@@ -87,6 +82,8 @@ export function DetailDrawer({
               "—"
             )}
           </dd>
+          <dt>published_at</dt>
+          <dd>{source.published_at ?? "—"}</dd>
         </dl>
       ) : null}
 
@@ -94,10 +91,25 @@ export function DetailDrawer({
         <dl>
           <dt>claim_id</dt>
           <dd>{claim.id}</dd>
-          <dt>signature_summary</dt>
-          <dd>{claim.signature_summary}</dd>
-          <dt>created_at</dt>
-          <dd>{claim.created_at}</dd>
+          <dt>text</dt>
+          <dd>{claim.text}</dd>
+          <dt>triage</dt>
+          <dd>{claim.triage ?? "—"}</dd>
+          <dt>claim_type</dt>
+          <dd>{claim.claim_type ?? "—"}</dd>
+        </dl>
+      ) : null}
+
+      {run ? (
+        <dl>
+          <dt>search_run_id</dt>
+          <dd>{run.id}</dd>
+          <dt>provider</dt>
+          <dd>{run.provider}</dd>
+          <dt>query</dt>
+          <dd>{run.query || "—"}</dd>
+          <dt>status</dt>
+          <dd>{run.status}</dd>
         </dl>
       ) : null}
 
@@ -105,15 +117,13 @@ export function DetailDrawer({
         <dl>
           <dt>verdict</dt>
           <dd>{verdict.verdict}</dd>
-          <dt>evidence_ids</dt>
-          <dd>{verdict.evidence_ids.join(", ")}</dd>
-          <dt>evaluated_at</dt>
-          <dd>{verdict.evaluated_at}</dd>
+          <dt>query_count</dt>
+          <dd>{verdict.query_count}</dd>
+          <dt>candidate_ids</dt>
+          <dd>{verdict.candidate_ids.join(", ") || "—"}</dd>
+          <dt>summary</dt>
+          <dd>{verdict.summary}</dd>
         </dl>
-      ) : null}
-
-      {!evidence && !source && !claim && !verdict ? (
-        <p className="detail-drawer__empty">No detail for {selectedEntityId}</p>
       ) : null}
     </aside>
   );

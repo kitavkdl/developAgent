@@ -1,4 +1,4 @@
-export type DemoScenarioId = "fresh" | "stale" | "miss" | "seed";
+export type DemoScenarioId = "miss" | "hit" | "delta" | "puffery" | "scholar";
 
 export type PlaybackSpeed = "slow" | "normal" | "fast";
 
@@ -10,45 +10,43 @@ export type JobViewState =
   | "failed"
   | "degraded";
 
-export type CacheDecision =
-  | "HIT_FRESH"
-  | "HIT_STALE"
-  | "SEED_ONLY"
-  | "MISS"
-  | "INVALID";
+export type CacheDecision = "HIT" | "MISS" | "DELTA" | "REVERIFY";
 
-export type VerdictEnum = "Direct" | "Partial" | "Mixed" | "Not found";
+export type VerdictEnum =
+  | "REFUTED"
+  | "NOT_REFUTED"
+  | "PUBLIC_SUBSTANTIATION_NOT_FOUND"
+  | "PUFFERY";
 
-export type AccessLevel = "metadata" | "snippet" | "abstract" | "full_text";
-export type EvidenceRelation =
-  | "direct"
-  | "broader"
-  | "narrower"
-  | "conflicting"
-  | "unrelated";
-export type EvidenceDirection = "supports" | "refutes" | "mixed" | "background";
+export type RouteKind = "SCIENTIFIC" | "GENERAL";
+
+export type TriageLabel = "FALSIFIABLE" | "PUFFERY" | "NOT_A_CLAIM";
 
 export type GraphNodeKind =
   | "Claim"
   | "SearchRun"
   | "Source"
-  | "EvidenceUnit"
+  | "Candidate"
   | "Verdict";
 
-export interface EvidenceUnitView {
-  evidence_id: string;
+export interface ApplicabilityCheck {
+  scope_match: boolean;
+  metric_match: boolean;
+  timeframe_match: boolean;
+  target_match: boolean;
+}
+
+export interface CandidateView {
+  candidate_id: string;
   claim_id: string;
-  source_snapshot_id: string;
   source_id?: string;
   title?: string;
   url?: string;
-  access_level: AccessLevel;
-  relation: EvidenceRelation;
-  direction: EvidenceDirection;
-  matched_scope?: Record<string, string | undefined>;
-  missing_scope?: string[];
+  published_at?: string | null;
   excerpt_or_summary: string;
-  extracted_at: string;
+  applicability_check: ApplicabilityCheck;
+  passes_gate: boolean;
+  evaluated_at: string;
 }
 
 export interface JobSnapshot {
@@ -57,7 +55,7 @@ export interface JobSnapshot {
   status: JobViewState;
   cache_decision?: CacheDecision;
   verdict?: VerdictEnum;
-  answer?: string;
+  summary?: string;
 }
 
 export interface TraceLine {
@@ -65,25 +63,33 @@ export interface TraceLine {
   sequence: number;
   kind: "tool.call" | "tool.result" | "system";
   agent_label?: string;
+  provider?: "liner" | "openai";
   summary: string;
   created_at: string;
-  /** Graph entity to highlight with this trace line (e.g. search_run_id). */
   relatedEntityId?: string;
 }
 
 export interface TableRows {
-  claims: Array<{ id: string; signature_summary: string; created_at: string }>;
+  claims: Array<{
+    id: string;
+    text: string;
+    triage?: TriageLabel;
+    claim_type?: string;
+    created_at: string;
+  }>;
   sources: Array<{
     id: string;
     title: string;
     url?: string;
-    access_level: AccessLevel;
+    published_at?: string | null;
   }>;
-  evidence_units: EvidenceUnitView[];
+  candidates: CandidateView[];
   verdict_versions: Array<{
     id: string;
     verdict: VerdictEnum;
-    evidence_ids: string[];
+    candidate_ids: string[];
+    query_count: number;
+    summary: string;
     evaluated_at: string;
   }>;
   search_runs: Array<{
@@ -99,28 +105,26 @@ export type GraphNodeData = {
   label: string;
   subtitle?: string;
   stale?: boolean;
-  /** Newly extracted after stale refresh / delta search. */
   freshDelta?: boolean;
-  /** Reused from cache (fresh hit or pre-delta stale). */
   reused?: boolean;
   pulse?: boolean;
   emphasis?: boolean;
-  /** Show cache decision ring on Claim. */
   cacheRing?: CacheDecision | null;
-  access_level?: AccessLevel;
+  passesGate?: boolean;
+  provider?: string;
   verdict?: VerdictEnum;
   entityId: string;
   [key: string]: unknown;
 };
+
+export type TableTab =
+  | "claims"
+  | "candidates"
+  | "sources"
+  | "verdict_versions";
 
 export const PLAYBACK_STEP_MS: Record<PlaybackSpeed, number> = {
   slow: 700,
   normal: 420,
   fast: 180,
 };
-
-export type TableTab =
-  | "claims"
-  | "evidence_units"
-  | "sources"
-  | "verdict_versions";

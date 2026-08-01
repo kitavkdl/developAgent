@@ -44,8 +44,13 @@ function EvidenceNode(props: NodeProps) {
       <span className="graph-node__kind">{data.kind}</span>
       <strong>{data.label}</strong>
       {data.subtitle ? <p>{data.subtitle}</p> : null}
-      {data.access_level ? (
-        <em className="graph-node__access">{data.access_level}</em>
+      {data.provider ? (
+        <em className="graph-node__access">liner · {data.provider}</em>
+      ) : null}
+      {typeof data.passesGate === "boolean" ? (
+        <em className="graph-node__access">
+          gate · {data.passesGate ? "pass" : "fail"}
+        </em>
       ) : null}
       {data.verdict ? (
         <em className="graph-node__verdict" data-verdict={data.verdict}>

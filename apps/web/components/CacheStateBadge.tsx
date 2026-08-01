@@ -1,11 +1,10 @@
 import type { CacheDecision } from "@/types/domain";
 
 const LABELS: Record<CacheDecision, string> = {
-  HIT_FRESH: "Cache fresh",
-  HIT_STALE: "Cache stale",
-  SEED_ONLY: "Seed only",
+  HIT: "Cache hit",
   MISS: "Cache miss",
-  INVALID: "Invalidated",
+  DELTA: "Delta search",
+  REVERIFY: "Reverify",
 };
 
 export function CacheStateBadge({

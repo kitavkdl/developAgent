@@ -5,7 +5,7 @@ import type { TableRows, TableTab } from "@/types/domain";
 
 const TABS: { id: TableTab; label: string }[] = [
   { id: "claims", label: "claims" },
-  { id: "evidence_units", label: "evidence_units" },
+  { id: "candidates", label: "candidates" },
   { id: "sources", label: "sources" },
   { id: "verdict_versions", label: "verdict_versions" },
 ];
@@ -48,16 +48,13 @@ export function SchemaTablePanel({
   selectedEntityId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const [tab, setTab] = useState<TableTab>("evidence_units");
-  const claimIds = tables.claims.map((r) => r.id);
-  const evidenceIds = tables.evidence_units.map((r) => r.evidence_id);
-  const sourceIds = tables.sources.map((r) => r.id);
-  const verdictIds = tables.verdict_versions.map((r) => r.id);
-
-  const flashClaims = useFlashIds(claimIds);
-  const flashEvidence = useFlashIds(evidenceIds);
-  const flashSources = useFlashIds(sourceIds);
-  const flashVerdicts = useFlashIds(verdictIds);
+  const [tab, setTab] = useState<TableTab>("candidates");
+  const flashClaims = useFlashIds(tables.claims.map((r) => r.id));
+  const flashCandidates = useFlashIds(
+    tables.candidates.map((r) => r.candidate_id),
+  );
+  const flashSources = useFlashIds(tables.sources.map((r) => r.id));
+  const flashVerdicts = useFlashIds(tables.verdict_versions.map((r) => r.id));
 
   return (
     <section className="panel table-panel">
@@ -82,16 +79,16 @@ export function SchemaTablePanel({
             {tab === "claims" ? (
               <tr>
                 <th>id</th>
-                <th>signature_summary</th>
-                <th>created_at</th>
+                <th>text</th>
+                <th>triage</th>
+                <th>claim_type</th>
               </tr>
             ) : null}
-            {tab === "evidence_units" ? (
+            {tab === "candidates" ? (
               <tr>
-                <th>evidence_id</th>
-                <th>access_level</th>
-                <th>relation</th>
-                <th>direction</th>
+                <th>candidate_id</th>
+                <th>passes_gate</th>
+                <th>published_at</th>
                 <th>title</th>
               </tr>
             ) : null}
@@ -99,7 +96,7 @@ export function SchemaTablePanel({
               <tr>
                 <th>id</th>
                 <th>title</th>
-                <th>access_level</th>
+                <th>published_at</th>
                 <th>url</th>
               </tr>
             ) : null}
@@ -107,8 +104,8 @@ export function SchemaTablePanel({
               <tr>
                 <th>id</th>
                 <th>verdict</th>
-                <th>evidence_ids</th>
-                <th>evaluated_at</th>
+                <th>query_count</th>
+                <th>candidate_ids</th>
               </tr>
             ) : null}
           </thead>
@@ -126,26 +123,26 @@ export function SchemaTablePanel({
                   onClick={() => onSelect(row.id)}
                 >
                   <td>{row.id}</td>
-                  <td>{row.signature_summary}</td>
-                  <td>{row.created_at}</td>
+                  <td>{row.text}</td>
+                  <td>{row.triage ?? "—"}</td>
+                  <td>{row.claim_type ?? "—"}</td>
                 </tr>
               ))}
-            {tab === "evidence_units" &&
-              tables.evidence_units.map((row) => (
+            {tab === "candidates" &&
+              tables.candidates.map((row) => (
                 <tr
-                  key={row.evidence_id}
+                  key={row.candidate_id}
                   className={[
-                    selectedEntityId === row.evidence_id ? "is-selected" : "",
-                    flashEvidence.has(row.evidence_id) ? "is-flash" : "",
+                    selectedEntityId === row.candidate_id ? "is-selected" : "",
+                    flashCandidates.has(row.candidate_id) ? "is-flash" : "",
                   ]
                     .filter(Boolean)
                     .join(" ") || undefined}
-                  onClick={() => onSelect(row.evidence_id)}
+                  onClick={() => onSelect(row.candidate_id)}
                 >
-                  <td>{row.evidence_id}</td>
-                  <td>{row.access_level}</td>
-                  <td>{row.relation}</td>
-                  <td>{row.direction}</td>
+                  <td>{row.candidate_id}</td>
+                  <td>{row.passes_gate ? "true" : "false"}</td>
+                  <td>{row.published_at ?? "null"}</td>
                   <td>{row.title ?? "—"}</td>
                 </tr>
               ))}
@@ -163,7 +160,7 @@ export function SchemaTablePanel({
                 >
                   <td>{row.id}</td>
                   <td>{row.title}</td>
-                  <td>{row.access_level}</td>
+                  <td>{row.published_at ?? "—"}</td>
                   <td>{row.url ?? "—"}</td>
                 </tr>
               ))}
@@ -181,8 +178,8 @@ export function SchemaTablePanel({
                 >
                   <td>{row.id}</td>
                   <td>{row.verdict}</td>
-                  <td>{row.evidence_ids.join(", ")}</td>
-                  <td>{row.evaluated_at}</td>
+                  <td>{row.query_count}</td>
+                  <td>{row.candidate_ids.join(", ") || "—"}</td>
                 </tr>
               ))}
           </tbody>

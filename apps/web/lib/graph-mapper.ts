@@ -101,30 +101,35 @@ export function mapJobToGraph(
 } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
-  const staleDecision = model.cacheDecision === "HIT_STALE";
+  const deltaDecision = model.cacheDecision === "DELTA";
   const claim = model.tables.claims[0];
   const runCount = model.tables.search_runs.length;
   const sourceCount = Math.max(model.tables.sources.length, 1);
-  const evidenceCount = Math.max(model.tables.evidence_units.length, 1);
+  const candidateCount = Math.max(model.tables.candidates.length, 1);
 
   if (claim) {
     const pulsing =
       isFocused(model, claim.id) &&
-      (model.lastEventType === "claim.normalized" ||
+      (model.lastEventType === "claim.extracted" ||
+        model.lastEventType === "claim.triaged" ||
         model.lastEventType === "cache.decision" ||
-        model.lastEventType === "cache.candidate");
+        model.lastEventType === "route.decided" ||
+        model.lastEventType === "industry.classified");
     nodes.push(
       node(
         claim.id,
         {
           kind: "Claim",
           label: "Claim",
-          subtitle: claim.signature_summary,
+          subtitle: claim.text,
           entityId: claim.id,
           pulse: pulsing,
-          emphasis: Boolean(model.cacheDecision),
+          emphasis: Boolean(model.cacheDecision || model.triage),
           cacheRing: model.cacheDecision,
-          stale: staleDecision && model.status === "streaming" && !model.deltaRefreshStarted,
+          stale:
+            deltaDecision &&
+            model.status === "streaming" &&
+            !model.deltaRefreshStarted,
         },
         { x: 320, y: 24 },
       ),
@@ -144,6 +149,7 @@ export function mapJobToGraph(
           label: run.provider === "scholar" ? "Scholar" : "Web",
           subtitle: run.query || run.status,
           entityId: run.id,
+          provider: run.provider,
           pulse: pulsing && run.status === "running",
           emphasis: pulsing,
         },
@@ -172,9 +178,8 @@ export function mapJobToGraph(
           kind: "Source",
           label: "Source",
           subtitle: source.title,
-          access_level: source.access_level,
           entityId: source.id,
-          stale: reused && staleDecision,
+          stale: reused && deltaDecision,
           reused,
           freshDelta,
           pulse: isFocused(model, source.id),
@@ -188,16 +193,15 @@ export function mapJobToGraph(
     if (run) {
       edges.push(
         edge(`${run.id}-${source.id}`, run.id, source.id, {
-          stale: reused && staleDecision,
+          stale: reused && deltaDecision,
           fresh: freshDelta,
           selected: isSelectedPath(selectedEntityId, run.id, source.id),
         }),
       );
     } else if (claim) {
-      // HIT_FRESH / reuse-without-search: Claim → Source
       edges.push(
         edge(`${claim.id}-${source.id}`, claim.id, source.id, {
-          stale: reused && staleDecision,
+          stale: reused && deltaDecision,
           fresh: freshDelta,
           selected: isSelectedPath(selectedEntityId, claim.id, source.id),
         }),
@@ -205,47 +209,59 @@ export function mapJobToGraph(
     }
   });
 
-  model.tables.evidence_units.forEach((ev, i) => {
-    const spread = Math.max(evidenceCount - 1, 1);
+  model.tables.candidates.forEach((cand, i) => {
+    const spread = Math.max(candidateCount - 1, 1);
     const x = 60 + (i * 500) / spread;
-    const reused = model.reusedEntityIds.includes(ev.evidence_id);
-    const freshDelta = model.freshEntityIds.includes(ev.evidence_id);
+    const reused = model.reusedEntityIds.includes(cand.candidate_id);
+    const freshDelta = model.freshEntityIds.includes(cand.candidate_id);
     nodes.push(
       node(
-        ev.evidence_id,
+        cand.candidate_id,
         {
-          kind: "EvidenceUnit",
-          label: "Evidence",
-          subtitle: `${ev.relation} · ${ev.direction}`,
-          access_level: ev.access_level,
-          entityId: ev.evidence_id,
-          stale: reused && staleDecision,
+          kind: "Candidate",
+          label: cand.passes_gate ? "Candidate ✓" : "Candidate",
+          subtitle: cand.title ?? cand.candidate_id,
+          entityId: cand.candidate_id,
+          passesGate: cand.passes_gate,
+          stale: reused && deltaDecision,
           reused,
           freshDelta,
-          pulse: isFocused(model, ev.evidence_id),
-          emphasis: freshDelta || isFocused(model, ev.evidence_id),
+          pulse: isFocused(model, cand.candidate_id),
+          emphasis:
+            cand.passes_gate ||
+            freshDelta ||
+            isFocused(model, cand.candidate_id),
         },
         { x, y: 480 },
       ),
     );
-    if (ev.source_id) {
+    if (cand.source_id) {
       edges.push(
-        edge(`${ev.source_id}-${ev.evidence_id}`, ev.source_id, ev.evidence_id, {
-          stale: reused && staleDecision,
-          fresh: freshDelta,
-          selected: isSelectedPath(
-            selectedEntityId,
-            ev.source_id,
-            ev.evidence_id,
-          ),
-        }),
+        edge(
+          `${cand.source_id}-${cand.candidate_id}`,
+          cand.source_id,
+          cand.candidate_id,
+          {
+            stale: reused && deltaDecision,
+            fresh: freshDelta,
+            selected: isSelectedPath(
+              selectedEntityId,
+              cand.source_id,
+              cand.candidate_id,
+            ),
+          },
+        ),
       );
     } else if (claim) {
       edges.push(
-        edge(`${claim.id}-${ev.evidence_id}`, claim.id, ev.evidence_id, {
-          stale: reused && staleDecision,
+        edge(`${claim.id}-${cand.candidate_id}`, claim.id, cand.candidate_id, {
+          stale: reused && deltaDecision,
           fresh: freshDelta,
-          selected: isSelectedPath(selectedEntityId, claim.id, ev.evidence_id),
+          selected: isSelectedPath(
+            selectedEntityId,
+            claim.id,
+            cand.candidate_id,
+          ),
         }),
       );
     }
@@ -268,47 +284,35 @@ export function mapJobToGraph(
         { x: 320, y: 640 },
       ),
     );
-    for (const evidenceId of latestVerdict.evidence_ids) {
-      const freshDelta = model.freshEntityIds.includes(evidenceId);
-      const reused = model.reusedEntityIds.includes(evidenceId);
+    const linkIds =
+      latestVerdict.candidate_ids.length > 0
+        ? latestVerdict.candidate_ids
+        : claim
+          ? [claim.id]
+          : [];
+    for (const id of linkIds) {
+      const freshDelta = model.freshEntityIds.includes(id);
+      const reused = model.reusedEntityIds.includes(id);
       edges.push(
-        edge(`${evidenceId}-${latestVerdict.id}`, evidenceId, latestVerdict.id, {
+        edge(`${id}-${latestVerdict.id}`, id, latestVerdict.id, {
           verdict: true,
           fresh: freshDelta,
-          stale: reused && staleDecision && !freshDelta,
-          selected: isSelectedPath(
-            selectedEntityId,
-            evidenceId,
-            latestVerdict.id,
-          ),
+          stale: reused && deltaDecision && !freshDelta,
+          selected: isSelectedPath(selectedEntityId, id, latestVerdict.id),
         }),
       );
     }
   }
 
-  // Citation path: selected evidence ↔ claim soft path already covered by adjacency.
-  // Also emphasize edges when selected evidence is a citation.
-  if (
-    selectedEntityId &&
-    model.citationEvidenceIds.includes(selectedEntityId) &&
-    claim
-  ) {
-    const claimToEv = edges.find(
-      (e) =>
-        (e.source === claim.id && e.target === selectedEntityId) ||
-        (e.source === selectedEntityId && e.target === claim.id),
-    );
-    if (!claimToEv) {
-      // Walk Source path — mark edges touching selected evidence
-      for (const e of edges) {
-        if (e.source === selectedEntityId || e.target === selectedEntityId) {
-          e.className = `${e.className ?? ""} is-path`.trim();
-          e.style = {
-            ...e.style,
-            strokeWidth: 2.25,
-            stroke: "rgba(196, 120, 43, 0.95)",
-          };
-        }
+  if (selectedEntityId) {
+    for (const e of edges) {
+      if (e.source === selectedEntityId || e.target === selectedEntityId) {
+        e.className = `${e.className ?? ""} is-path`.trim();
+        e.style = {
+          ...e.style,
+          strokeWidth: 2.25,
+          stroke: "rgba(196, 120, 43, 0.95)",
+        };
       }
     }
   }

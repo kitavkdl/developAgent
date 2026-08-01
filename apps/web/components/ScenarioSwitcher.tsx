@@ -4,9 +4,10 @@ import type { DemoScenarioId } from "@/types/domain";
 
 const OPTIONS: { id: DemoScenarioId; label: string }[] = [
   { id: "miss", label: "MISS" },
-  { id: "fresh", label: "HIT_FRESH" },
-  { id: "stale", label: "HIT_STALE" },
-  { id: "seed", label: "SEED_ONLY" },
+  { id: "hit", label: "HIT" },
+  { id: "delta", label: "DELTA" },
+  { id: "puffery", label: "PUFFERY" },
+  { id: "scholar", label: "SCHOLAR" },
 ];
 
 export function ScenarioSwitcher({

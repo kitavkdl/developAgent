@@ -34,11 +34,12 @@ export function DemoShell() {
 
       {!active ? (
         <section className="hero">
-          <p className="hero__brand">Evidence</p>
-          <h1 className="hero__title">Research memory, made visible</h1>
+          <p className="hero__brand">COUNTER</p>
+          <h1 className="hero__title">Counter-evidence, made visible</h1>
           <p className="hero__lede">
-            One claim in. Watch cache gates, agent tools, and evidence units
-            accumulate into a verdict.
+            One claim in. Watch triage, cache routing, LINER search, and
+            deterministic gates assemble a four-value verdict — on dummy memory
+            for now.
           </p>
           <SearchBar busy={busy} onSubmit={submit} />
           <div className="hero__controls">
@@ -54,12 +55,25 @@ export function DemoShell() {
           <header className="stage__top">
             <div className="stage__brand-row">
               <button type="button" className="brand-mark" onClick={reset}>
-                Evidence
+                COUNTER
               </button>
               <CacheStateBadge
                 decision={model.cacheDecision}
-                reusedCount={model.reusedEvidenceCount}
+                reusedCount={model.reusedCandidateCount}
               />
+              {model.route ? (
+                <span className="route-chip" data-route={model.route}>
+                  {model.route}
+                </span>
+              ) : null}
+              {model.industryLabel ? (
+                <span
+                  className={`industry-chip ${model.industryIsNew ? "is-new" : ""}`}
+                >
+                  {model.industryLabel}
+                  {model.industryIsNew ? " · new" : ""}
+                </span>
+              ) : null}
               <span className="stage__status" data-status={model.status}>
                 {model.status}
               </span>
@@ -95,9 +109,10 @@ export function DemoShell() {
               />
               <VerdictAnswerPanel
                 verdict={model.verdict}
-                answer={model.answer}
+                summary={model.summary}
                 reasonCodes={model.reasonCodes}
-                citationIds={model.citationEvidenceIds}
+                queryCount={model.queryCount}
+                citationIds={model.citationCandidateIds}
                 onCite={setSelectedEntityId}
               />
             </div>

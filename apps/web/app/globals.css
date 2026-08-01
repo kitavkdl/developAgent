@@ -342,7 +342,7 @@ body {
   border: 1px solid rgba(196, 120, 43, 0.35);
 }
 
-.cache-badge[data-decision="HIT_FRESH"] {
+.cache-badge[data-decision="HIT"] {
   background: rgba(47, 125, 76, 0.22);
   border-color: rgba(47, 125, 76, 0.45);
   color: #b9e0c4;
@@ -354,10 +354,39 @@ body {
   color: #b7e0d7;
 }
 
-.cache-badge[data-decision="SEED_ONLY"] {
+.cache-badge[data-decision="DELTA"] {
   background: rgba(176, 122, 26, 0.2);
   border-color: rgba(176, 122, 26, 0.4);
   color: #edd49a;
+}
+
+.cache-badge[data-decision="REVERIFY"] {
+  background: rgba(179, 59, 44, 0.18);
+  border-color: rgba(179, 59, 44, 0.4);
+  color: #f0b4a8;
+}
+
+.route-chip,
+.industry-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--line-bright);
+  background: rgba(255, 255, 255, 0.05);
+  color: #d7ddd9;
+}
+
+.route-chip[data-route="SCIENTIFIC"] {
+  border-color: rgba(99, 160, 255, 0.45);
+  color: #b7d0f5;
+}
+
+.industry-chip.is-new {
+  border-color: rgba(226, 181, 114, 0.55);
+  color: #f0d7b0;
 }
 
 .stage__main {
@@ -486,23 +515,77 @@ body {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.verdict-chip[data-verdict="Direct"],
-.graph-node__verdict[data-verdict="Direct"] {
+.verdict-chip[data-verdict="REFUTED"],
+.graph-node__verdict[data-verdict="REFUTED"] {
   color: #9fd9b0;
 }
 
-.verdict-chip[data-verdict="Partial"],
-.graph-node__verdict[data-verdict="Partial"] {
+.verdict-chip[data-verdict="NOT_REFUTED"],
+.graph-node__verdict[data-verdict="NOT_REFUTED"] {
   color: #ecd089;
 }
 
-.verdict-chip[data-verdict="Mixed"],
-.graph-node__verdict[data-verdict="Mixed"] {
-  color: #e0a8c0;
+.verdict-chip[data-verdict="PUBLIC_SUBSTANTIATION_NOT_FOUND"],
+.graph-node__verdict[data-verdict="PUBLIC_SUBSTANTIATION_NOT_FOUND"] {
+  color: #f0b4a8;
 }
 
-.verdict-chip[data-verdict="Not found"],
-.graph-node__verdict[data-verdict="Not found"] {
+.verdict-chip[data-verdict="PUFFERY"],
+.graph-node__verdict[data-verdict="PUFFERY"] {
+  color: #c5cec8;
+}
+
+.verdict-queries,
+.verdict-hint {
+  margin: 0 0 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  opacity: 0.75;
+}
+
+.verdict-hint {
+  border-left: 2px solid rgba(196, 120, 43, 0.45);
+  padding-left: 0.65rem;
+}
+
+.trace-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.trace-provider {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.trace-provider[data-provider="liner"] {
+  color: #b7d0f5;
+  border-color: rgba(99, 160, 255, 0.4);
+}
+
+.trace-provider[data-provider="openai"] {
+  color: #b9e0c4;
+  border-color: rgba(47, 125, 76, 0.45);
+}
+
+.check-list {
+  margin: 0;
+  padding-left: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.check-list li[data-ok="true"] {
+  color: #9fd9b0;
+}
+
+.check-list li[data-ok="false"] {
   color: #f0b4a8;
 }
 
@@ -793,7 +876,7 @@ body {
   white-space: nowrap;
 }
 
-.graph-node__cache-ring[data-decision="HIT_FRESH"] {
+.graph-node__cache-ring[data-decision="HIT"] {
   background: rgba(47, 125, 76, 0.28);
   border-color: rgba(47, 125, 76, 0.5);
   color: #b9e0c4;
@@ -805,10 +888,14 @@ body {
   color: #b7e0d7;
 }
 
-.graph-node__cache-ring[data-decision="SEED_ONLY"] {
+.graph-node__cache-ring[data-decision="DELTA"] {
   background: rgba(176, 122, 26, 0.25);
   border-color: rgba(176, 122, 26, 0.5);
   color: #edd49a;
+}
+
+.graph-node.kind-Candidate {
+  border-color: rgba(196, 120, 43, 0.4);
 }
 
 .react-flow__controls {

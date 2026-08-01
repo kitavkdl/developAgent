@@ -1,8 +1,10 @@
 import type {
   CacheDecision,
   JobViewState,
+  RouteKind,
   TableRows,
   TraceLine,
+  TriageLabel,
   VerdictEnum,
 } from "@/types/domain";
 import type { ResearchEvent, ResearchEventType } from "@/types/events";
@@ -12,28 +14,27 @@ export interface JobViewModel {
   query: string;
   status: JobViewState;
   cacheDecision: CacheDecision | null;
-  reusedEvidenceCount: number | null;
+  reusedCandidateCount: number | null;
+  route: RouteKind | null;
+  industryLabel: string | null;
+  industryIsNew: boolean;
+  triage: TriageLabel | null;
   verdict: VerdictEnum | null;
   reasonCodes: string[];
-  answer: string;
-  citationEvidenceIds: string[];
+  summary: string;
+  queryCount: number;
+  citationCandidateIds: string[];
   errorMessage: string | null;
   events: ResearchEvent[];
   traces: TraceLine[];
   tables: TableRows;
-  /** Latest event type for stage focus mapping. */
   lastEventType: ResearchEventType | null;
-  /** Entity ids that should pulse (claim, search run, evidence, verdict). */
   focusEntityIds: string[];
   activeTraceId: string | null;
   activeSearchRunId: string | null;
-  /** Evidence/source ids shown as cache reuse (dim). */
   reusedEntityIds: string[];
-  /** Evidence/source ids from delta refresh (highlight). */
   freshEntityIds: string[];
-  /** After HIT_STALE, first tool.call starts delta path. */
   deltaRefreshStarted: boolean;
-  /** True once job.completed — trigger final fitView. */
   growthComplete: boolean;
 }
 
@@ -43,18 +44,23 @@ export function createInitialJobView(query = ""): JobViewModel {
     query,
     status: "idle",
     cacheDecision: null,
-    reusedEvidenceCount: null,
+    reusedCandidateCount: null,
+    route: null,
+    industryLabel: null,
+    industryIsNew: false,
+    triage: null,
     verdict: null,
     reasonCodes: [],
-    answer: "",
-    citationEvidenceIds: [],
+    summary: "",
+    queryCount: 0,
+    citationCandidateIds: [],
     errorMessage: null,
     events: [],
     traces: [],
     tables: {
       claims: [],
       sources: [],
-      evidence_units: [],
+      candidates: [],
       verdict_versions: [],
       search_runs: [],
     },
@@ -80,6 +86,7 @@ function pushTrace(
       sequence: line.sequence,
       kind: line.kind,
       agent_label: line.agent_label,
+      provider: line.provider,
       summary: line.summary,
       created_at: line.created_at,
       relatedEntityId: line.relatedEntityId,
@@ -100,17 +107,17 @@ function withFocus(
 }
 
 function markReuseOrFresh(next: JobViewModel, entityIds: string[]): void {
-  const isFreshHit = next.cacheDecision === "HIT_FRESH";
-  const isStaleReuse =
-    next.cacheDecision === "HIT_STALE" && !next.deltaRefreshStarted;
-  const isStaleDelta =
-    next.cacheDecision === "HIT_STALE" && next.deltaRefreshStarted;
+  const isHit = next.cacheDecision === "HIT";
+  const isDeltaReuse =
+    next.cacheDecision === "DELTA" && !next.deltaRefreshStarted;
+  const isDeltaFresh =
+    next.cacheDecision === "DELTA" && next.deltaRefreshStarted;
 
-  if (isFreshHit || isStaleReuse) {
+  if (isHit || isDeltaReuse) {
     next.reusedEntityIds = Array.from(
       new Set([...next.reusedEntityIds, ...entityIds]),
     );
-  } else if (isStaleDelta) {
+  } else if (isDeltaFresh) {
     next.freshEntityIds = Array.from(
       new Set([...next.freshEntityIds, ...entityIds]),
     );
@@ -129,7 +136,7 @@ export function applyResearchEvent(
     tables: {
       claims: [...state.tables.claims],
       sources: [...state.tables.sources],
-      evidence_units: [...state.tables.evidence_units],
+      candidates: [...state.tables.candidates],
       verdict_versions: [...state.tables.verdict_versions],
       search_runs: [...state.tables.search_runs],
     },
@@ -151,27 +158,77 @@ export function applyResearchEvent(
       withFocus(next, []);
       break;
 
-    case "claim.normalized":
+    case "intake.completed":
+      next.traces = pushTrace(next, {
+        sequence: event.sequence,
+        kind: "system",
+        summary: `Intake · ${event.payload.source_type}`,
+        created_at: event.created_at,
+      });
+      withFocus(next, []);
+      break;
+
+    case "claim.extracted":
       next.tables.claims.push({
         id: event.payload.claim_id,
-        signature_summary: event.payload.signature_summary,
+        text: event.payload.text,
         created_at: event.created_at,
       });
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "system",
-        summary: `Normalized claim · ${event.payload.signature_summary}`,
+        summary: `Claim extracted · ${event.payload.text}`,
         created_at: event.created_at,
         relatedEntityId: event.payload.claim_id,
       });
       withFocus(next, [event.payload.claim_id]);
       break;
 
-    case "cache.candidate":
+    case "claim.triaged": {
+      next.triage = event.payload.triage;
+      next.tables.claims = next.tables.claims.map((c) =>
+        c.id === event.payload.claim_id
+          ? {
+              ...c,
+              triage: event.payload.triage,
+              claim_type: event.payload.claim_type,
+            }
+          : c,
+      );
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "system",
-        summary: `Cache candidates · ${event.payload.candidate_claim_ids.length}`,
+        summary: `Triage · ${event.payload.triage}${
+          event.payload.reason ? ` — ${event.payload.reason}` : ""
+        }`,
+        created_at: event.created_at,
+        relatedEntityId: event.payload.claim_id,
+      });
+      withFocus(next, [event.payload.claim_id]);
+      break;
+    }
+
+    case "route.decided":
+      next.route = event.payload.route;
+      next.traces = pushTrace(next, {
+        sequence: event.sequence,
+        kind: "system",
+        summary: `Route · ${event.payload.route}`,
+        created_at: event.created_at,
+        relatedEntityId: event.payload.claim_id,
+      });
+      withFocus(next, [event.payload.claim_id]);
+      break;
+
+    case "industry.classified":
+      next.industryLabel = event.payload.label;
+      next.industryIsNew = event.payload.is_new;
+      next.traces = pushTrace(next, {
+        sequence: event.sequence,
+        kind: "system",
+        summary: `Industry · ${event.payload.label}${
+          event.payload.is_new ? " (NEW)" : ""
+        }`,
         created_at: event.created_at,
       });
       withFocus(next, next.tables.claims[0] ? [next.tables.claims[0].id] : []);
@@ -179,11 +236,11 @@ export function applyResearchEvent(
 
     case "cache.decision":
       next.cacheDecision = event.payload.decision;
-      next.reusedEvidenceCount = event.payload.reused_evidence_count ?? null;
+      next.reusedCandidateCount = event.payload.reused_candidate_count ?? null;
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "system",
-        summary: `Cache decision · ${event.payload.decision}`,
+        summary: `Cache · ${event.payload.decision}`,
         created_at: event.created_at,
         relatedEntityId: next.tables.claims[0]?.id,
       });
@@ -194,7 +251,7 @@ export function applyResearchEvent(
       const runId =
         event.payload.search_run_id ??
         `run-${event.sequence}-${event.payload.tool_name}`;
-      if (next.cacheDecision === "HIT_STALE") {
+      if (next.cacheDecision === "DELTA") {
         next.deltaRefreshStarted = true;
       }
       if (!next.tables.search_runs.some((r) => r.id === runId)) {
@@ -212,6 +269,7 @@ export function applyResearchEvent(
         sequence: event.sequence,
         kind: "tool.call",
         agent_label: event.payload.agent_label,
+        provider: event.payload.provider,
         summary: `${event.payload.tool_name}(${JSON.stringify(event.payload.args_redacted)})`,
         created_at: event.created_at,
         relatedEntityId: runId,
@@ -233,6 +291,7 @@ export function applyResearchEvent(
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "tool.result",
+        provider: event.payload.provider,
         summary: event.payload.result_summary,
         created_at: event.created_at,
         relatedEntityId: runId,
@@ -241,42 +300,49 @@ export function applyResearchEvent(
       break;
     }
 
-    case "evidence.extracted": {
-      const ev = event.payload;
-      next.tables.evidence_units.push(ev);
-      const linked: string[] = [ev.evidence_id];
+    case "candidate.evaluated": {
+      const cand = event.payload;
+      next.tables.candidates.push(cand);
+      const linked: string[] = [cand.candidate_id];
       if (
-        ev.source_id &&
-        !next.tables.sources.some((s) => s.id === ev.source_id)
+        cand.source_id &&
+        !next.tables.sources.some((s) => s.id === cand.source_id)
       ) {
         next.tables.sources.push({
-          id: ev.source_id,
-          title: ev.title ?? ev.source_id,
-          url: ev.url,
-          access_level: ev.access_level,
+          id: cand.source_id,
+          title: cand.title ?? cand.source_id,
+          url: cand.url,
+          published_at: cand.published_at,
         });
+        linked.push(cand.source_id);
       }
-      if (ev.source_id) linked.push(ev.source_id);
       markReuseOrFresh(next, linked);
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "system",
-        summary: `Evidence · ${ev.title ?? ev.evidence_id}`,
+        summary: `Candidate · ${cand.title ?? cand.candidate_id} · gate=${
+          cand.passes_gate ? "pass" : "fail"
+        }`,
         created_at: event.created_at,
-        relatedEntityId: ev.evidence_id,
+        relatedEntityId: cand.candidate_id,
       });
       withFocus(next, linked);
       break;
     }
 
-    case "verdict.updated": {
+    case "verdict.assembled": {
       const verdictId = `verdict-${event.sequence}`;
       next.verdict = event.payload.verdict;
       next.reasonCodes = event.payload.reason_codes ?? [];
+      next.summary = event.payload.summary;
+      next.queryCount = event.payload.query_count;
+      next.citationCandidateIds = event.payload.candidate_ids;
       next.tables.verdict_versions.push({
         id: verdictId,
         verdict: event.payload.verdict,
-        evidence_ids: event.payload.evidence_ids,
+        candidate_ids: event.payload.candidate_ids,
+        query_count: event.payload.query_count,
+        summary: event.payload.summary,
         evaluated_at: event.created_at,
       });
       next.traces = pushTrace(next, {
@@ -286,29 +352,15 @@ export function applyResearchEvent(
         created_at: event.created_at,
         relatedEntityId: verdictId,
       });
-      withFocus(next, [verdictId, ...event.payload.evidence_ids]);
+      withFocus(next, [verdictId, ...event.payload.candidate_ids]);
       break;
     }
-
-    case "answer.delta":
-      next.answer += event.payload.text_delta;
-      if (event.payload.citation_evidence_ids?.length) {
-        next.citationEvidenceIds = Array.from(
-          new Set([
-            ...next.citationEvidenceIds,
-            ...event.payload.citation_evidence_ids,
-          ]),
-        );
-        withFocus(next, event.payload.citation_evidence_ids);
-      }
-      break;
 
     case "job.completed":
       next.status =
         event.payload.status === "degraded" ? "degraded" : "complete";
       next.growthComplete = true;
       next.activeSearchRunId = null;
-      next.focusEntityIds = [];
       next.traces = pushTrace(next, {
         sequence: event.sequence,
         kind: "system",
@@ -316,6 +368,19 @@ export function applyResearchEvent(
         created_at: event.created_at,
       });
       withFocus(next, [], next.traces[next.traces.length - 1]?.id ?? null);
+      break;
+
+    case "job.degraded":
+      next.status = "degraded";
+      next.growthComplete = true;
+      next.errorMessage = event.payload.reason;
+      next.traces = pushTrace(next, {
+        sequence: event.sequence,
+        kind: "system",
+        summary: `Degraded · ${event.payload.reason}`,
+        created_at: event.created_at,
+      });
+      withFocus(next, []);
       break;
 
     case "job.failed":

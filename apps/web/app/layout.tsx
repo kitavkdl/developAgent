@@ -20,9 +20,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Evidence — Research Demo",
+  title: "COUNTER — Dummy Evidence Memory",
   description:
-    "Demo UI for the Evidence Research Agent: claim search, cache gates, and hybrid evidence memory visualization.",
+    "Demo UI for COUNTER: triage, cache routing, LINER search, and four-value verdicts on dummy evidence memory.",
 };
 
 export default function RootLayout({
