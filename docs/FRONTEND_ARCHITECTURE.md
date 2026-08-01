@@ -140,6 +140,60 @@ View Transition API 미지원 브라우저에서는 같은 상태 변경을 즉�
 전환만 허용한다. 이 기능은 더미 Next.js 프로토타입 전용이며 Streamlit 제출
 계약을 변경하지 않는다.
 
+### 3.5 Independent category memory B+ tree demo
+
+`/database`는 기존 research workspace와 상태·레이아웃을 공유하지 않는 독립
+route이며 진입 즉시 category explorer를 렌더한다. 파일 경계는
+`apps/web/app/database/`와 `apps/web/components/database/` 아래에 둔다.
+
+DB reference는 GitHub `kitavkdl/developAgent`의 `main`이다.
+
+- DDL: `db/migrations/001_init.sql`
+- seed category: `db/migrations/002_seed_static.sql`
+- centroid 대표 문장: `counter/bootstrap.py::CATEGORY_PHRASES`
+- 실제 분류 동작: `counter/pipeline/s2b_classifier.py`
+- 기준 변경 이력: commit `3a16e983` (`DB_SCHEMA.md` 원본 DDL 반영)
+
+원격 계약의 `industry_category`는 `parent_id`가 없는 평면형 pgvector partition이다.
+화면의 B+ tree는 `category_id` PK 탐색을 설명하기 위한 index projection이며,
+`centroid_embedding`의 실제 IVFFlat index 구조나 DB FK hierarchy를 뜻하지 않는다.
+category leaf hit 이후에는 row payload의 대표 문장과 keyword를 별도 semantic level로
+투영한다.
+
+```text
+industry_category_pkey root page
+  ↓ AI index scan
+internal key-range pages: [B…E] [F…K] [P…U]
+  ↓ selected child pointer
+linked category leaf pages (13종 + UNCATEGORIZED)
+  ↓ leaf row payload
+centroid representative phrase → phrase keyword
+```
+
+- `/database` 진입 후 700ms 뒤 deterministic demo를 한 번 자동 시작한다. 고정 경로는
+  `root → B…E → BEAUTY_PERSONAL_CARE → 비건 세럼 피부 진정 앰플 → 앰플`이다.
+- 각 단계는 slow preset의 고정 간격으로 진행하고, status cursor와 child pointer,
+  방문 완료·현재 probe 상태를 구분한다.
+- internal page는 key range를, category level은 정렬된 leaf record와 sibling pointer를
+  보여 B+ tree의 index page/leaf page 구조를 시각화한다.
+- 데모 가독성을 위해 internal/leaf/payload/token 각 level은 fixture를 순환 참조한
+  frontend-only node 15개를 만든다. 각 node는 고유 demo ID를 사용하며 DB row,
+  migration, API payload에는 추가되지 않는다.
+- 네 sub level의 node는 기존 leaf card 크기로 통일하고, 한 줄 수평 목록이 viewport를
+  넘으면 해당 level 안에서만 가로 스크롤한다.
+- category leaf hit 뒤에는 해당 row의 실제 centroid phrase만 다음 semantic level에
+  펼치고, phrase를 찾으면 token level에서 `앰플`을 최종 hit로 표시한다.
+- 사용자가 internal/category/phrase node를 누르면 자동 탐색을 즉시 중지하고 같은
+  구조에서 수동 탐색으로 전환한다. Pause/Resume과 Replay도 제공한다.
+- 실제 source identity는 원격 `category_id`와 phrase/keyword를 유지하고, 반복 표시
+  node는 frontend-only demo ID로 구분한다.
+- `created_by=seed|agent_generated`, centroid 존재 여부, category reuse threshold의
+  역할을 설명하되, threshold `0.75`는 검증된 수치처럼 표시하지 않는다.
+- 브라우저는 Neon에 직접 연결하지 않는다. 현재 화면은 원격 main의 seed fixture를
+  재현하고, 실제 연동은 서버 snapshot adapter 뒤에서만 수행한다.
+- `prefers-reduced-motion`에서는 이동·pulse를 제거하되 자동 단계와 의미 순서는
+  유지한다.
+
 ---
 
 ## 4. 레이어
