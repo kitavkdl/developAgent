@@ -24,12 +24,14 @@ from ..settings import Settings, load_settings
 from ..state import JobState, StateMachine, derive_state
 from .s0_intake import run_intake
 from .s1_triage import run_triage
+from .s1b_subject import resolve_subject
 from .s2a_router import run_router
 from .s2b_classifier import resolve_industry_category
 from .s3_cache import run_cache_check
 from .s4_hypothesis import run_hypothesis
 from .s5_search import run_search_and_evaluate
-from .s6_verdict import assemble_from_cache, assemble_from_search, persist_puffery
+from .s6_verdict import (assemble_from_cache, assemble_from_search,
+                         assemble_unresolved_subject, persist_puffery)
 
 
 class Pipeline:
@@ -220,9 +222,38 @@ class Pipeline:
         delta_mode = decision == "DELTA"
         search_mode = "delta" if delta_mode else "full"
 
+        # S1b — 판매/서비스 주체(브랜드) 해소. target_entity가 required인
+        # claim_type(CLINICAL_COMPLETION, SELF_REPORTED_PRIVATE_METRIC 등)만
+        # 대상 — 이 차원이 애초에 게이트에서 안 보는 claim_type(SUPERLATIVE_FIRST/
+        # RANKING처럼 카테고리 전체 대비 반례를 찾는 유형)까지 브랜드 해소를
+        # 강제하면 정당한 카테고리 단위 탐색까지 막아버린다 (구축 요청 [A]는
+        # target_entity가 필요한 claim_type에 한정된 문제). CACHE_CHECK 상태에서
+        # 처리해 실패 시 cache-HIT 경로와 같은 방식으로 SYNTHESIZING으로 바로
+        # 빠질 수 있게 한다 (RESEARCHING은 실제 검색을 시작할 때만 진입).
+        subject = None
+        if falsifier["required_match_fields"].get("target_entity"):
+            subject = resolve_subject(
+                claim=claim, intake=intake, oai=self.oai, liner=self.liner,
+                db=self.db, claim_id=claim_id, settings=s, emitter=emitter,
+            )
+            emitter.emit("subject.resolved", {
+                "brand": subject.get("brand"), "product": subject.get("product"),
+                "seller": subject.get("seller"), "resolved": subject["resolved"],
+                "reasoning": subject.get("reasoning"),
+            })
+            if not subject["resolved"]:
+                sm.transition(JobState.SYNTHESIZING)
+                assemble_unresolved_subject(
+                    claim=claim, claim_id=claim_id, oai=self.oai, db=self.db,
+                    settings=s, emitter=emitter,
+                )
+                sm.transition(JobState.PERSISTING)
+                sm.transition(JobState.COMPLETE)
+                return False  # 시스템 실패가 아니라 결정론적 4값 판정 중 하나 — degraded 아님
+
         sm.transition(JobState.RESEARCHING)
         _hypotheses, queries = run_hypothesis(
-            claim, route, claim_type_row, self.oai, s, emitter,
+            claim, route, claim_type_row, self.oai, s, emitter, subject=subject,
             delta_mode=delta_mode, date_from=date_from,
         )
         outcome = run_search_and_evaluate(

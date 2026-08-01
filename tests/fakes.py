@@ -47,6 +47,10 @@ class FakeDb:
             "GENERAL_FACTUAL": {"claim_type_code": "GENERAL_FACTUAL",
                                 "requires_search": True, "default_search_budget": 3,
                                 "default_ttl_days": 30, "max_evidence_per_query": 3},
+            "SELF_REPORTED_PRIVATE_METRIC": {
+                "claim_type_code": "SELF_REPORTED_PRIVATE_METRIC",
+                "requires_search": True, "default_search_budget": 3,
+                "default_ttl_days": 90, "max_evidence_per_query": 3},
             "PUFFERY": {"claim_type_code": "PUFFERY", "requires_search": False,
                         "default_search_budget": 0, "default_ttl_days": 999,
                         "max_evidence_per_query": 0},
@@ -65,6 +69,10 @@ class FakeDb:
             "GENERAL_FACTUAL": {"falsifier_spec_id": "fs4", "required_match_fields": {
                 "scope": True, "metric": False, "timeframe": True,
                 "target_entity": False, "geography": False}},
+            "SELF_REPORTED_PRIVATE_METRIC": {"falsifier_spec_id": "fs5",
+                "required_match_fields": {
+                    "scope": True, "metric": True, "timeframe": True,
+                    "target_entity": True, "geography": False}},
         }
 
     def close(self) -> None:

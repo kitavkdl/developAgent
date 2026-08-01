@@ -16,6 +16,11 @@ from __future__ import annotations
 # falsifier 차원 (DB_SCHEMA.md falsifier_spec 초기값 표)
 FALSIFIER_FIELDS = ("scope", "metric", "timeframe", "target_entity", "geography")
 
+# 구조적으로 제3자 검증이 불가능한 claim_type (구축 요청 [D]) — 이 목록은
+# claim_type 정의에 속하는 상수이지 검색 결과에 따라 달라지는 값이 아니므로
+# 여기(게이트 코드)에 둔다. 반례를 실제로 찾으면 REFUTED는 그대로 유효하다.
+NO_THIRD_PARTY_VERIFICATION_TYPES = {"SELF_REPORTED_PRIVATE_METRIC"}
+
 
 def passes_refuted_gate(applicability_check: dict, required_match_fields: dict) -> bool:
     """required_match_fields에서 true인 차원 f가 전부 applicability_check[f+"_match"]에서
@@ -37,16 +42,22 @@ def passes_refuted_gate(applicability_check: dict, required_match_fields: dict) 
 
 
 def assemble_verdict_code(candidates: list[dict], required_match_fields: dict,
-                          any_search_succeeded: bool) -> tuple[str, dict | None]:
+                          any_search_succeeded: bool,
+                          claim_type_code: str | None = None) -> tuple[str, dict | None]:
     """S6 ①: 판정 코드는 LLM 선언이 아니라 이 조건문이 결정한다.
 
     - 게이트 통과 candidate 존재 → REFUTED (그 candidate가 evidence)
     - 검색이 하나도 성공 못 함(프로바이더 장애) → PUBLIC_SUBSTANTIATION_NOT_FOUND
+    - claim_type이 구조적으로 제3자 검증 불가능한 유형
+      (NO_THIRD_PARTY_VERIFICATION_TYPES)이면, 검색은 성공했지만 반례를
+      못 찾은 경우도 NOT_REFUTED가 아니라 PUBLIC_SUBSTANTIATION_NOT_FOUND —
+      "이 쿼리들에서 못 찾았다"가 아니라 "확인할 공개 자료 자체가 구조적으로
+      없다"가 더 정확한 진술이기 때문 (구축 요청 [D]).
     - 그 외 → NOT_REFUTED ("사실이다"가 아니라 "이 쿼리들에서 못 찾았다" — D-03)
     """
     for cand in candidates:
         if passes_refuted_gate(cand.get("applicability_check", {}), required_match_fields):
             return "REFUTED", cand
-    if not any_search_succeeded:
+    if not any_search_succeeded or claim_type_code in NO_THIRD_PARTY_VERIFICATION_TYPES:
         return "PUBLIC_SUBSTANTIATION_NOT_FOUND", None
     return "NOT_REFUTED", None

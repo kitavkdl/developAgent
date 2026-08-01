@@ -59,15 +59,25 @@ def assemble_from_search(*, claim: dict, claim_id: str, category_id: str,
 
     # ① 결정론적 REFUTED 게이트 (N1)
     verdict_code, winning = assemble_verdict_code(
-        candidates, required, search_outcome["any_search_succeeded"]
+        candidates, required, search_outcome["any_search_succeeded"],
+        claim_type_code=claim["claim_type_code"],
     )
     evidence_link = winning["url"] if winning else None
     evidence_date = _safe_date(winning["published_date"]) if winning else None
 
+    evidence_note = degraded_reason
+    if (verdict_code == "PUBLIC_SUBSTANTIATION_NOT_FOUND" and not winning
+            and search_outcome["any_search_succeeded"] and not evidence_note):
+        # 검색 자체는 정상 수행됐지만 claim_type이 구조적으로 제3자 검증
+        # 불가능해(gate.NO_THIRD_PARTY_VERIFICATION_TYPES) 라우팅된 경우 —
+        # S5 타임아웃/실패 사유(degraded_reason)와는 다른 사유를 남긴다.
+        evidence_note = ("이 주장은 비상장/사기업이 자체 발표한 정량 지표로, "
+                         "법정 공시나 제3자 감사 대상이 아닙니다")
+
     reasoning = _make_explanation(
         claim=claim, verdict_code=verdict_code, winning=winning,
         executed_queries=executed_queries, oai=oai, settings=settings,
-        emitter=emitter, degraded_reason=degraded_reason,
+        emitter=emitter, degraded_reason=evidence_note,
     )
 
     # canonical 축적 — 다음 유사 질문의 캐시/델타 기반 (PRD §6-3)
@@ -91,15 +101,42 @@ def assemble_from_search(*, claim: dict, claim_id: str, category_id: str,
         claim_id=claim_id, canonical_id=canonical_id, verdict_code=verdict_code,
         evidence_link=evidence_link, evidence_date=evidence_date,
         search_count=len(executed_queries), confidence_source=confidence_source,
-        required_evidence_note=degraded_reason, reasoning=reasoning,
+        required_evidence_note=evidence_note, reasoning=reasoning,
     )
     emitter.emit("verdict.assembled", {
         "verdict_id": verdict_id, "claim_text": claim["claim_text"],
         "verdict_code": verdict_code, "evidence_link": evidence_link,
         "confidence_source": confidence_source, "cache_decision": cache_decision,
-        "executed_queries": executed_queries, "degraded_reason": degraded_reason,
+        "executed_queries": executed_queries, "degraded_reason": evidence_note,
     }, provider="app")
     return {"verdict_id": verdict_id, "verdict_code": verdict_code}
+
+
+def assemble_unresolved_subject(*, claim: dict, claim_id: str, oai, db, settings,
+                                emitter) -> dict:
+    """판매/서비스 주체(브랜드)를 특정하지 못해 S4/S5를 건너뛰고 종료하는 경로
+    (구축 요청 [A]). 브랜드 없이 만든 쿼리는 target_entity 매칭이 원리적으로
+    불가능해 유효한 반례가 될 수 없으므로, 검색을 강행하지 않고 결정론적으로
+    PUBLIC_SUBSTANTIATION_NOT_FOUND를 부여한다."""
+    note = "주장 대상 브랜드가 특정되지 않아 검증 불가"
+    reasoning = _make_explanation(
+        claim=claim, verdict_code="PUBLIC_SUBSTANTIATION_NOT_FOUND", winning=None,
+        executed_queries=[], oai=oai, settings=settings, emitter=emitter,
+        degraded_reason=note,
+    )
+    verdict_id = db.insert_verdict(
+        claim_id=claim_id, canonical_id=None,
+        verdict_code="PUBLIC_SUBSTANTIATION_NOT_FOUND",
+        evidence_link=None, evidence_date=None, search_count=0,
+        confidence_source="fresh_search", required_evidence_note=note,
+        reasoning=reasoning,
+    )
+    emitter.emit("verdict.assembled", {
+        "verdict_id": verdict_id, "claim_text": claim["claim_text"],
+        "verdict_code": "PUBLIC_SUBSTANTIATION_NOT_FOUND",
+        "degraded_reason": note,
+    }, provider="app")
+    return {"verdict_id": verdict_id, "verdict_code": "PUBLIC_SUBSTANTIATION_NOT_FOUND"}
 
 
 def persist_puffery(*, claim: dict, claim_id: str, oai, db, settings, emitter) -> dict:
@@ -132,9 +169,12 @@ def _make_explanation(*, claim, verdict_code, winning, executed_queries, oai, se
                     f"{winning['url']} (발행일: {winning['published_date'] or '미상'}). "
                     f"실행한 쿼리 {n}개는 화면에 표시됩니다.")
         if verdict_code == "PUBLIC_SUBSTANTIATION_NOT_FOUND":
-            reason = f" ({degraded_reason})" if degraded_reason else ""
+            if degraded_reason:
+                reason_text = degraded_reason.rstrip(". ")
+                return (f"{reason_text}. 공개된 범위에서 근거가 확인되지 않았습니다. "
+                        f"실행 시도한 쿼리 {n}개를 확인하세요.")
             return (f"검색 실행이 정상적으로 완료되지 못해 공개된 범위에서 근거가 "
-                    f"확인되지 않았습니다{reason}. 실행 시도한 쿼리 {n}개를 확인하세요.")
+                    f"확인되지 않았습니다. 실행 시도한 쿼리 {n}개를 확인하세요.")
         if verdict_code == "PUFFERY":
             return ("검증 가능한 사실 주장이 아니어서 검색을 실행하지 않았습니다. "
                     "주관적 표현은 참·거짓을 따질 대상이 아닙니다.")

@@ -18,14 +18,26 @@ from .. import prompts, schemas
 
 
 def run_hypothesis(claim: dict, route: str, claim_type_row: dict, oai, settings,
-                   emitter, *, delta_mode: bool, date_from: str | None) -> tuple[list[dict], list[dict]]:
-    """반환: (hypotheses, budget 내로 잘라낸 쿼리 목록 [{query_text, language}])"""
+                   emitter, *, delta_mode: bool, date_from: str | None,
+                   subject: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """반환: (hypotheses, budget 내로 잘라낸 쿼리 목록 [{query_text, language}])
+
+    subject(S1b에서 해소된 {brand, product, seller})가 있으면 프롬프트에
+    알려주고, clamp_queries가 모든 쿼리에 브랜드명을 코드 레벨로 강제 삽입한다
+    (LLM 선의에 맡기지 않음 — 구축 요청 [A])."""
     budget = compute_budget(int(claim_type_row["default_search_budget"]), delta_mode)
+    brand = (subject or {}).get("brand")
+    subject_line = ""
+    if brand:
+        subject_line = f"\n판매/서비스 주체: {brand}"
+        if (subject or {}).get("product"):
+            subject_line += f" (제품: {subject['product']})"
     user = (
         f"클레임: {claim['claim_text']}\n"
         f"claim_type: {claim['claim_type_code']}\n"
         f"검증 경로: {route}\n"
         f"search_budget: {budget}"
+        f"{subject_line}"
         + (f"\n[델타 모드] {date_from} 이후의 신규 문서만 대상. 과거 증거는 이미 확보됨."
            if delta_mode else "")
     )
@@ -36,22 +48,28 @@ def run_hypothesis(claim: dict, route: str, claim_type_row: dict, oai, settings,
         emitter=emitter, stage="S4_HYPOTHESIS",
     )
     hypotheses = result.get("hypotheses", [])
-    return hypotheses, clamp_queries(hypotheses, budget)
+    return hypotheses, clamp_queries(hypotheses, budget, required_token=brand)
 
 
 def compute_budget(default_budget: int, delta_mode: bool) -> int:
     return max(1, math.ceil(default_budget / 2)) if delta_mode else default_budget
 
 
-def clamp_queries(hypotheses: list[dict], budget: int) -> list[dict]:
-    """가설 순서대로 쿼리를 모으되 총 예산 초과분은 버린다 (B09 게이트: 예산 초과 안 함)."""
+def clamp_queries(hypotheses: list[dict], budget: int,
+                  required_token: str | None = None) -> list[dict]:
+    """가설 순서대로 쿼리를 모으되 총 예산 초과분은 버린다 (B09 게이트: 예산 초과 안 함).
+    required_token(해소된 판매주체명)이 있으면 모든 쿼리에 강제 포함시킨다 —
+    LLM이 빠뜨려도 코드가 보장한다 (구축 요청 [A])."""
     queries: list[dict] = []
     for h in hypotheses:
         for q in h.get("queries", []):
             if len(queries) >= budget:
                 return queries
-            if q.get("query_text"):
-                queries.append({"query_text": q["query_text"],
-                                "language": q.get("language", "ko"),
-                                "hypothesis": h.get("hypothesis")})
+            text = q.get("query_text")
+            if not text:
+                continue
+            if required_token and required_token not in text:
+                text = f"{required_token} {text}"
+            queries.append({"query_text": text, "language": q.get("language", "ko"),
+                            "hypothesis": h.get("hypothesis")})
     return queries

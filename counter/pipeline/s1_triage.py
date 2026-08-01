@@ -13,7 +13,8 @@ from __future__ import annotations
 from .. import prompts, schemas
 
 FIXED_CLAIM_TYPES = {"SUPERLATIVE_FIRST", "RANKING", "CLINICAL_COMPLETION",
-                     "AI_PERFORMANCE", "GENERAL_FACTUAL"}
+                     "AI_PERFORMANCE", "GENERAL_FACTUAL",
+                     "SELF_REPORTED_PRIVATE_METRIC"}
 
 
 def run_triage(intake_result: dict, oai, settings, emitter) -> list[dict]:

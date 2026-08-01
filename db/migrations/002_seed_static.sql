@@ -7,6 +7,7 @@ INSERT INTO claim_type VALUES
  ('CLINICAL_COMPLETION','임상/시험 완료 주장',  TRUE, 3,  60, 3),
  ('AI_PERFORMANCE',   'AI 성능 주장',           TRUE, 4,  14, 3),
  ('GENERAL_FACTUAL',  '기타 검증가능 사실주장', TRUE, 3,  30, 3),
+ ('SELF_REPORTED_PRIVATE_METRIC', '비상장/사기업 자체발표 지표', TRUE, 3, 90, 3),
  ('PUFFERY',          '주관적 과장',           FALSE, 0, 999, 0)
 ON CONFLICT (claim_type_code) DO NOTHING;
 
@@ -27,7 +28,10 @@ FROM (VALUES
   ('RANKING',             '{"scope":false,"metric":true,"timeframe":true,"target_entity":false,"geography":true}'),
   ('CLINICAL_COMPLETION', '{"scope":false,"metric":false,"timeframe":false,"target_entity":true,"geography":false}'),
   ('AI_PERFORMANCE',      '{"scope":true,"metric":true,"timeframe":true,"target_entity":false,"geography":false}'),
-  ('GENERAL_FACTUAL',     '{"scope":true,"metric":false,"timeframe":true,"target_entity":false,"geography":false}')
+  ('GENERAL_FACTUAL',     '{"scope":true,"metric":false,"timeframe":true,"target_entity":false,"geography":false}'),
+  -- 자체발표 지표: 같은 회사·같은 지표·같은 시점의 모순만 반례로 인정 (엄격) —
+  -- H1(자기모순) 외의 우연한 일치를 반례로 오인하지 않기 위해 target_entity도 필수.
+  ('SELF_REPORTED_PRIVATE_METRIC', '{"scope":true,"metric":true,"timeframe":true,"target_entity":true,"geography":false}')
 ) AS v(code, fields)
 WHERE NOT EXISTS (SELECT 1 FROM falsifier_spec f WHERE f.claim_type_code = v.code);
 

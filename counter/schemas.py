@@ -40,7 +40,8 @@ TRIAGE_SCHEMA = _obj({
             "claim_type_code": {
                 "type": ["string", "null"],
                 "enum": ["SUPERLATIVE_FIRST", "RANKING", "CLINICAL_COMPLETION",
-                         "AI_PERFORMANCE", "GENERAL_FACTUAL", None],
+                         "AI_PERFORMANCE", "GENERAL_FACTUAL",
+                         "SELF_REPORTED_PRIVATE_METRIC", None],
             },
             "missing_comparator": _bool,
             "reasoning": _str,
@@ -56,6 +57,13 @@ ROUTER_SCHEMA = _obj({
 CATEGORY_LABEL_SCHEMA = _obj({
     "code": _str,
     "label_ko": _str,
+})
+
+SUBJECT_RESOLUTION_SCHEMA = _obj({
+    "brand": _str_or_null,
+    "product": _str_or_null,
+    "seller": _str_or_null,
+    "reasoning": _str,
 })
 
 HYPOTHESIS_SCHEMA = _obj({
