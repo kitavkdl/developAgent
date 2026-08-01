@@ -1,53 +1,52 @@
--- 정적 시드: verdict_type / claim_type / falsifier_spec / 업종 13종
--- 업종 centroid_embedding은 API 키가 필요하므로 scripts/seed_categories.py에서 별도 계산.
--- 임계값·예산·TTL은 전부 미검증 추정치 (DECISIONS D-11). 실측 후 이 파일에서 조정.
+-- 정적 시드 — DB_SCHEMA.md §1 시드 값 그대로 (멱등 적용).
 
-INSERT INTO verdict_type (code, label_ko, description) VALUES
-  ('REFUTED',                          '반례 발견',
-   'falsifier 기준을 전부 충족하는 반례 문서가 실재함. evidence_link 필수.'),
-  ('NOT_REFUTED',                      '반례 미발견',
-   '실행한 N개 쿼리에서 기준 충족 반례를 찾지 못함. "사실이다"라는 뜻이 아님.'),
-  ('PUBLIC_SUBSTANTIATION_NOT_FOUND',  '공개 실증자료 미확인',
-   '실증이 필요한 유형인데 공개 근거 자체가 확인되지 않음.'),
-  ('PUFFERY',                          '주관적 과장 표현',
-   '검증 대상이 아님. 검색을 실행하지 않음 (tool_call 0건).')
-ON CONFLICT (code) DO NOTHING;
-
--- 검색 예산: SCIENTIFIC 경로 최대 3 / GENERAL 경로 최대 4 (ARCHITECTURE §3)
-INSERT INTO claim_type (code, label_ko, default_search_budget, max_evidence_per_query, default_ttl_days) VALUES
-  ('SUPERLATIVE_FIRST',   '최초/유일 주장',     4, 5, 180),
-  ('RANKING',             '순위/1위 주장',      4, 5,  30),
-  ('CLINICAL_COMPLETION', '임상/인증 완료 주장', 3, 5,  90),
-  ('AI_PERFORMANCE',      'AI 성능 주장',       4, 5,  14),
-  ('GENERAL_FACTUAL',     '일반 사실 주장',     4, 5,  60)
-ON CONFLICT (code) DO NOTHING;
-
--- required_match_fields: true인 필드가 전부 충족돼야만 코드가 REFUTED 조립 (PRD N1)
---  * SUPERLATIVE_FIRST/RANKING: 반례는 '타사의 선행/상충 기록'이므로 target_match는 요구하지 않음.
---    대신 동일 범주(scope)·동일 지표(metric)·시점(timeframe)이 전부 일치해야 함.
---  * CLINICAL_COMPLETION: 그 제품/회사 자체에 대한 기록이어야 함(target). 타사 임상은 반례 아님.
---  * GENERAL_FACTUAL: 주체(target)에 대한 반대 사실의 1차 자료 + 시점 일치.
-INSERT INTO falsifier_spec (claim_type_code, required_match_fields, prompt_version) VALUES
-  ('SUPERLATIVE_FIRST',   '{"scope_match": true, "metric_match": true, "timeframe_match": true, "target_match": false}', 'v1'),
-  ('RANKING',             '{"scope_match": true, "metric_match": true, "timeframe_match": true, "target_match": false}', 'v1'),
-  ('CLINICAL_COMPLETION', '{"scope_match": true, "metric_match": false, "timeframe_match": false, "target_match": true}', 'v1'),
-  ('AI_PERFORMANCE',      '{"scope_match": true, "metric_match": true, "timeframe_match": false, "target_match": false}', 'v1'),
-  ('GENERAL_FACTUAL',     '{"scope_match": true, "metric_match": false, "timeframe_match": true, "target_match": true}', 'v1')
+-- claim_type: 고정 vocabulary + PUFFERY (requires_search=false, 예산 0)
+INSERT INTO claim_type VALUES
+ ('SUPERLATIVE_FIRST','최초/유일 주장',        TRUE, 4, 180, 3),
+ ('RANKING',          '1위/순위 주장',          TRUE, 4,  30, 3),
+ ('CLINICAL_COMPLETION','임상/시험 완료 주장',  TRUE, 3,  60, 3),
+ ('AI_PERFORMANCE',   'AI 성능 주장',           TRUE, 4,  14, 3),
+ ('GENERAL_FACTUAL',  '기타 검증가능 사실주장', TRUE, 3,  30, 3),
+ ('PUFFERY',          '주관적 과장',           FALSE, 0, 999, 0)
 ON CONFLICT (claim_type_code) DO NOTHING;
 
--- 업종 13종 (centroid는 seed 스크립트에서 채움). 데모 시드는 D-08에 따라 2~3개 업종에 몰 것.
-INSERT INTO industry_category (code, label_ko, created_by) VALUES
-  ('cosmetics_beauty',   '화장품/뷰티',      'seed'),
-  ('food_beverage',      '식품/음료',        'seed'),
-  ('home_appliance',     '가전',             'seed'),
-  ('health_supplement',  '건강기능식품',      'seed'),
-  ('fashion',            '패션/의류',        'seed'),
-  ('mobile_app_service', '모바일 앱/서비스', 'seed'),
-  ('finance',            '금융',             'seed'),
-  ('education',          '교육',             'seed'),
-  ('travel_lodging',     '여행/숙박',        'seed'),
-  ('automotive',         '자동차',           'seed'),
-  ('furniture_interior', '가구/인테리어',    'seed'),
-  ('medical_device',     '의료기기',         'seed'),
-  ('baby_kids',          '유아용품',         'seed')
-ON CONFLICT (code) DO NOTHING;
+INSERT INTO verdict_type VALUES
+ ('REFUTED','falsifier 기준 전부 충족하는 반례 존재'),
+ ('NOT_REFUTED','실행 쿼리에서 기준 충족 반례 미발견. 참이라는 뜻 아님'),
+ ('PUBLIC_SUBSTANTIATION_NOT_FOUND','공개 근거 자체가 확인되지 않음'),
+ ('PUFFERY','주관적 과장. 검증 대상 아님')
+ON CONFLICT (verdict_code) DO NOTHING;
+
+-- falsifier_spec 초기값 (DB_SCHEMA.md — "반드시 이 값으로 시드")
+-- 읽는 법: 최초 주장은 scope+timeframe이 맞아야 깨지고 target은 무관.
+--          1위 주장은 metric+timeframe+geography. 임상 완료는 target_entity만.
+INSERT INTO falsifier_spec (falsifier_spec_id, claim_type_code, required_match_fields, prompt_version)
+SELECT gen_random_uuid(), v.code, v.fields::jsonb, 'v1'
+FROM (VALUES
+  ('SUPERLATIVE_FIRST',   '{"scope":true,"metric":false,"timeframe":true,"target_entity":false,"geography":false}'),
+  ('RANKING',             '{"scope":false,"metric":true,"timeframe":true,"target_entity":false,"geography":true}'),
+  ('CLINICAL_COMPLETION', '{"scope":false,"metric":false,"timeframe":false,"target_entity":true,"geography":false}'),
+  ('AI_PERFORMANCE',      '{"scope":true,"metric":true,"timeframe":true,"target_entity":false,"geography":false}'),
+  ('GENERAL_FACTUAL',     '{"scope":true,"metric":false,"timeframe":true,"target_entity":false,"geography":false}')
+) AS v(code, fields)
+WHERE NOT EXISTS (SELECT 1 FROM falsifier_spec f WHERE f.claim_type_code = v.code);
+
+-- 업종 카테고리 시드 (DB_SCHEMA.md §4 — 13종). centroid는 scripts/seed_categories.py에서 계산.
+-- ⚠️ 데모 데이터는 2~3개 업종(뷰티/건강기능식품 등)에 몰아서 시드할 것 — 파티셔닝 때문에
+--    카테고리 간 캐시 히트가 안 생겨 reuse_count가 왜소해 보임.
+INSERT INTO industry_category (category_id, label, created_by) VALUES
+  ('BEAUTY_PERSONAL_CARE', '뷰티/퍼스널케어',   'seed'),
+  ('ELECTRONICS_APPLIANCE','가전/전자',         'seed'),
+  ('EDUCATION_EDTECH',     '교육/에듀테크',     'seed'),
+  ('FOOD_SUPPLEMENT',      '식품/건강기능식품', 'seed'),
+  ('FINANCE_FINTECH',      '금융/핀테크',       'seed'),
+  ('FASHION_APPAREL',      '패션/의류',         'seed'),
+  ('PET',                  '반려동물',          'seed'),
+  ('KIDS_BABY',            '유아동',            'seed'),
+  ('FITNESS_WELLNESS',     '피트니스/웰니스',   'seed'),
+  ('HOUSEHOLD_CHEMICAL',   '생활화학',          'seed'),
+  ('DIGITAL_HEALTH',       '디지털헬스',        'seed'),
+  ('TRAVEL_LODGING',       '여행/숙박',         'seed'),
+  ('REALESTATE_INTERIOR',  '부동산/인테리어',   'seed'),
+  ('UNCATEGORIZED',        '미분류 (폴백)',     'seed')
+ON CONFLICT (category_id) DO NOTHING;

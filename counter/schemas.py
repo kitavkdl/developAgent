@@ -77,6 +77,7 @@ EVALUATOR_SCHEMA = _obj({
     "metric_match": _bool,
     "timeframe_match": _bool,
     "target_match": _bool,
+    "geography_match": _bool,
     "evidence_quote": _str,
     "is_syndicated_copy": _bool,
     "insufficient_access": _bool,

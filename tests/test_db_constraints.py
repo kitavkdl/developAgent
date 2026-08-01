@@ -22,15 +22,10 @@ def test_chk_evidence_only_if_refuted():
     from counter.settings import Settings
 
     db = Db(Settings(database_url=os.environ["TEST_DATABASE_URL"]))
-    row = {
-        "job_id": uuid.uuid4(), "claim_text": "t", "normalized_text": "t",
-        "claim_category": "FALSIFIABLE", "claim_type_code": "RANKING",
-        "industry_category_id": None, "route": "GENERAL",
-        "verdict_code": "NOT_REFUTED",
-        "evidence_link": "https://should-be-rejected.example.com",
-        "evidence_date": None, "evidence_quote": None, "explanation": "x",
-        "executed_queries": "[]", "cache_decision": "MISS",
-        "canonical_id": None, "degraded_reason": None,
-    }
     with pytest.raises(psycopg2.errors.CheckViolation):
-        db.insert_verdict(row)
+        db.insert_verdict(
+            claim_id=None, canonical_id=None, verdict_code="NOT_REFUTED",
+            evidence_link="https://should-be-rejected.example.com",
+            evidence_date=None, search_count=1, confidence_source="fresh_search",
+            required_evidence_note=None, reasoning=str(uuid.uuid4()),
+        )

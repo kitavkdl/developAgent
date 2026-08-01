@@ -7,16 +7,17 @@ LLM은 각 단계 안에서만 판단한다. 상태 전이는 counter/state.py�
 외부 계약 (BUILD_PLAN §1.1): run_job / get_job_state / submit_feedback 세 함수.
 Streamlit 페이지는 이 세 함수만 안다 — 파이프라인 로직을 UI와 분리해
 단계별 검증 게이트(B01~B11)를 독립적으로 테스트하기 위함.
+
+job_id == ad_id: 한 job은 광고 입력 1건의 처리다 (DB_SCHEMA.md ad 테이블).
 """
 from __future__ import annotations
 
 import time
-import uuid
 from typing import Literal
 
 from ..clients.liner import LinerClient
 from ..clients.openai_client import OpenAIClient
-from ..db import Db
+from ..db import Db, new_id
 from ..events import TraceEmitter
 from ..settings import Settings, load_settings
 from ..state import JobState, StateMachine, derive_state
@@ -27,7 +28,7 @@ from .s2b_classifier import resolve_industry_category
 from .s3_cache import run_cache_check
 from .s4_hypothesis import run_hypothesis
 from .s5_search import run_search_and_evaluate
-from .s6_verdict import assemble_and_persist, persist_puffery
+from .s6_verdict import assemble_from_cache, assemble_from_search, persist_puffery
 
 
 class Pipeline:
@@ -43,9 +44,9 @@ class Pipeline:
     # ---- 계약 함수 1: run_job ----
 
     def run_job(self, source_type: Literal["IMAGE", "URL", "TEXT"], payload) -> str:
-        """S0~S6 전체 실행 후 job_id 반환. 매 단계 trace_event INSERT.
+        """S0~S6 전체 실행 후 job_id(=ad_id) 반환. 매 단계 trace_event INSERT.
         사람 개입 지점은 없다 (PRD N2 — 입력 1회 → 출력까지 독립 수행)."""
-        job_id = uuid.uuid4()
+        job_id = new_id()
         emitter = TraceEmitter(self.db, job_id)
         sm = StateMachine(JobState.INTAKE)
         started = time.monotonic()
@@ -57,7 +58,16 @@ class Pipeline:
         try:
             # S0 — 범주어 없이는 반례 쿼리를 만들 수 없으므로 항상 최우선
             intake = run_intake(source_type, payload, self.oai, self.settings, emitter)
-            emitter.emit("intake.completed", {k: v for k, v in intake.items()})
+            emitter.emit("intake.completed", dict(intake))
+
+            session_id = self.db.insert_session(source_app="web")
+            self.db.insert_ad(
+                ad_id=job_id, session_id=session_id, source_type=source_type,
+                raw_input=str(payload)[:4000] if source_type != "IMAGE" else "[image]",
+                extracted_text="\n".join(intake.get("raw_lines") or []),
+                brand_name=intake.get("brand_name"),
+                ocr_fallback_used=bool(intake.get("ocr_failed")),
+            )
 
             # S1 — PUFFERY 조기 종료 게이트. 여기서 걸러지면 검색 tool_call 0건 (N4)
             sm.transition(JobState.TRIAGE)
@@ -70,42 +80,48 @@ class Pipeline:
             falsifiable = [c for c in claims if c["claim_category"] == "FALSIFIABLE"]
             puffery = [c for c in claims if c["claim_category"] == "PUFFERY"]
 
+            # PUFFERY/NOT_A_CLAIM 기록. PUFFERY만 4값 판정 대상 (NOT_A_CLAIM은 계약 밖)
+            for c in claims:
+                if c["claim_category"] == "FALSIFIABLE":
+                    continue
+                claim_id = self.db.insert_claim(
+                    ad_id=job_id, claim_text=c["claim_text"],
+                    normalized_text=c["normalized_text"], embedding=None,
+                    claim_category=c["claim_category"],
+                    claim_type_code="PUFFERY" if c["claim_category"] == "PUFFERY" else None,
+                )
+                if c["claim_category"] == "PUFFERY":
+                    persist_puffery(claim=c, claim_id=claim_id, oai=self.oai,
+                                    db=self.db, settings=self.settings, emitter=emitter)
+
             if not falsifiable:
                 # 전부 PUFFERY/NOT_A_CLAIM → 검색 0회로 직행 종료 (ARCHITECTURE §2)
-                for c in puffery:
-                    persist_puffery(claim=c, oai=self.oai, db=self.db,
-                                    settings=self.settings, emitter=emitter)
                 sm.transition(JobState.COMPLETE)
                 emitter.emit("job.completed", {"reason": "no falsifiable claims",
                                                "search_tool_calls": 0})
-                return str(job_id)
-
-            # PUFFERY 판정은 먼저 기록 (검색과 무관)
-            for c in puffery:
-                persist_puffery(claim=c, oai=self.oai, db=self.db,
-                                settings=self.settings, emitter=emitter)
+                return job_id
 
             sm.transition(JobState.CLASSIFYING)
             # 상태 그래프(ARCHITECTURE §2)는 클레임 1건의 생애를 기술하므로,
-            # 클레임별로 독립 머신을 돌린다 (CLASSIFYING부터). job 레벨 머신은
-            # INTAKE→TRIAGE→CLASSIFYING까지의 공통 구간만 소유.
+            # 클레임별로 독립 머신을 돌린다 (CLASSIFYING부터).
             degraded_any = False
             for claim in falsifiable:
                 claim_sm = StateMachine(JobState.CLASSIFYING)
                 degraded_any |= self._process_falsifiable_claim(
-                    claim, intake, emitter, claim_sm, deadline_exceeded
+                    claim, intake, job_id, emitter, claim_sm, deadline_exceeded
                 )
 
             terminal = "job.degraded" if degraded_any else "job.completed"
             emitter.emit(terminal, {"claims_processed": len(claims)})
-            return str(job_id)
+            return job_id
 
         except Exception as e:
             if not emitter.terminated:
                 emitter.emit("job.failed", {"error": str(e)})
             raise
 
-    def _process_falsifiable_claim(self, claim, intake, emitter, sm, deadline_exceeded) -> bool:
+    def _process_falsifiable_claim(self, claim, intake, job_id, emitter, sm,
+                                   deadline_exceeded) -> bool:
         """FALSIFIABLE 클레임 1건 처리. 반환: DEGRADED 경유 여부."""
         s = self.settings
 
@@ -119,42 +135,56 @@ class Pipeline:
             claim, intake, self.oai, self.db, s, emitter
         )
         emitter.emit("industry.classified", {
-            "category_code": category["code"], "category_label": category["label_ko"],
+            "category_id": category["category_id"], "label": category["label"],
             "similarity": similarity, "is_new": is_new,  # is_new=true는 UI에서 강조
         })
+
+        claim_id = self.db.insert_claim(
+            ad_id=job_id, claim_text=claim["claim_text"],
+            normalized_text=claim["normalized_text"], embedding=embedding,
+            claim_category="FALSIFIABLE", claim_type_code=claim["claim_type_code"],
+        )
+        self.db.update_claim_routing(
+            claim_id, verification_route=route,
+            industry_category_id=category["category_id"],
+            industry_similarity=similarity,
+        )
+
+        claim_type_row = self.db.get_claim_type(claim["claim_type_code"]) or {
+            "claim_type_code": claim["claim_type_code"], "default_search_budget": 3,
+            "max_evidence_per_query": 3, "default_ttl_days": 30,
+        }
 
         # S3 — 결정론적 캐시 라우팅 (LLM 아님)
         sm.transition(JobState.CACHE_CHECK)
         decision, date_from, canonical = run_cache_check(
-            claim, category["id"], embedding, self.db, s
+            claim, category["category_id"], embedding,
+            int(claim_type_row["default_ttl_days"]), self.db, s
         )
         emitter.emit("cache.decision", {  # 히트여도 반드시 INSERT (재사용이 보여야 함)
             "decision": decision, "date_from": date_from,
-            "canonical_id": canonical["id"] if canonical else None,
+            "canonical_id": canonical["canonical_id"] if canonical else None,
             "reuse_count": canonical.get("reuse_count") if canonical else None,
         })
 
         if decision == "HIT":
-            sm.transition(JobState.SYNTHESIZING)  # 캐시 히트 → S4~S6 스킵
-            assemble_and_persist(
-                claim=claim, route=route, category_id=category["id"],
-                cache_decision="HIT", canonical=canonical, search_outcome=None,
-                required_match_fields={}, claim_type_row=None, embedding=embedding,
-                oai=self.oai, db=self.db, settings=s, emitter=emitter,
-                degraded_reason=None,
-            )
+            sm.transition(JobState.SYNTHESIZING)  # 캐시 히트 → S4~S6 검색 스킵
+            assemble_from_cache(claim=claim, claim_id=claim_id, canonical=canonical,
+                                oai=self.oai, db=self.db, settings=s, emitter=emitter)
             sm.transition(JobState.PERSISTING)
             sm.transition(JobState.COMPLETE)
             return False
 
         # MISS / DELTA / REVERIFY → S4 가설 → S5 검색·평가
-        claim_type_row = self.db.get_claim_type(claim["claim_type_code"])
-        falsifier = self.db.get_falsifier_spec(claim["claim_type_code"])
-        required = falsifier["required_match_fields"] if falsifier else {
-            "scope_match": True, "metric_match": True,
-            "timeframe_match": True, "target_match": True,  # 스펙 없으면 가장 엄격하게
+        falsifier = self.db.get_falsifier_spec(claim["claim_type_code"]) or {
+            "falsifier_spec_id": None,
+            # 스펙이 없으면 가장 엄격하게 (fail-closed)
+            "required_match_fields": {f: True for f in
+                                      ("scope", "metric", "timeframe",
+                                       "target_entity", "geography")},
         }
         delta_mode = decision == "DELTA"
+        search_mode = "delta" if delta_mode else "full"
 
         sm.transition(JobState.RESEARCHING)
         _hypotheses, queries = run_hypothesis(
@@ -162,10 +192,10 @@ class Pipeline:
             delta_mode=delta_mode, date_from=date_from,
         )
         outcome = run_search_and_evaluate(
-            claim=claim, route=route, queries=queries, claim_type_row=claim_type_row,
-            required_match_fields=required, liner=self.liner, oai=self.oai,
-            db=self.db, settings=s, emitter=emitter,
-            deadline_check=deadline_exceeded,
+            claim=claim, claim_id=claim_id, route=route, queries=queries,
+            claim_type_row=claim_type_row, falsifier_spec=falsifier,
+            liner=self.liner, oai=self.oai, db=self.db, settings=s, emitter=emitter,
+            deadline_check=deadline_exceeded, search_mode=search_mode,
             date_from=date_from if delta_mode else None,
         )
 
@@ -181,12 +211,11 @@ class Pipeline:
             sm.transition(JobState.EVALUATING)
             sm.transition(JobState.SYNTHESIZING)
 
-        assemble_and_persist(
-            claim=claim, route=route, category_id=category["id"],
+        assemble_from_search(
+            claim=claim, claim_id=claim_id, category_id=category["category_id"],
             cache_decision=decision, canonical=canonical, search_outcome=outcome,
-            required_match_fields=required, claim_type_row=claim_type_row,
-            embedding=embedding, oai=self.oai, db=self.db, settings=s,
-            emitter=emitter, degraded_reason=outcome["degraded_reason"],
+            falsifier_spec=falsifier, embedding=embedding, oai=self.oai, db=self.db,
+            settings=s, emitter=emitter, degraded_reason=outcome["degraded_reason"],
         )
         sm.transition(JobState.PERSISTING)
         sm.transition(JobState.COMPLETE)
@@ -206,7 +235,7 @@ class Pipeline:
         """판정이 이미 출력된 뒤 비동기 수집 (PRD N2 — 응답을 절대 블로킹하지 않음.
         Streamlit에서 결과 렌더링 후 눌리는 버튼이라는 게 이 규칙을 구조적으로 강제).
         dispute가 (건수 AND 비율) 임계 초과 시 needs_reverification=true →
-        다음 조회 때 S3가 풀 재검색(REVERIFY)으로 보낸다."""
+        다음 조회 때 S3가 풀 재검색(REVERIFY)으로 보낸다 (자가교정 — 완전 자동)."""
         self.db.insert_feedback(verdict_id, reaction, note)
         verdict = self.db.get_verdict(verdict_id)
         if verdict and verdict.get("canonical_id"):

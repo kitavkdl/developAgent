@@ -8,121 +8,117 @@
   ④ DB 기록 + 스트림 push
 근거를 지어내지 않는다 (N6): evidence_link는 검색 결과에 실제 존재한 URL만.
 DB의 chk_evidence_only_if_refuted 제약이 최후 방어선 (T9).
+confidence_source: fresh_search | cached_reuse | delta_search (DB_SCHEMA.md verdict).
 """
 from __future__ import annotations
 
-from .. import prompts, schemas
+from ..db import normalized_hash
 from ..gate import assemble_verdict_code
 from ..guardrail import SAFE_FALLBACK, contains_banned, guard
+from .. import prompts, schemas
 from .s5_search import _safe_date
 
 
-def assemble_and_persist(*, claim: dict, route: str | None, category_id: int | None,
+def assemble_from_cache(*, claim: dict, claim_id: str, canonical: dict,
+                        oai, db, settings, emitter) -> dict:
+    """캐시 히트 — 재검색 없이 canonical의 최신 verdict를 재사용 (지연 차이가 데모 포인트)."""
+    cached = db.latest_verdict_for_canonical(canonical["canonical_id"])
+    if cached is None:
+        # canonical은 있는데 verdict가 없는 비정상 상태 — 방어적으로 NOT_REFUTED 계약 문구
+        cached = {"verdict_code": "NOT_REFUTED", "evidence_link": None,
+                  "evidence_date": None, "search_count": 0,
+                  "reasoning": "축적된 판정 레코드를 찾지 못했습니다."}
+    executed_queries = db.fetch_executed_queries(claim_id, canonical["canonical_id"])
+    verdict_id = db.insert_verdict(
+        claim_id=claim_id, canonical_id=canonical["canonical_id"],
+        verdict_code=cached["verdict_code"], evidence_link=cached.get("evidence_link"),
+        evidence_date=cached.get("evidence_date"),
+        search_count=0,  # 이번 조회에서 실행한 검색은 0 — 재사용이 핵심
+        confidence_source="cached_reuse",
+        required_evidence_note=None, reasoning=cached.get("reasoning"),
+    )
+    db.update_claim_routing(claim_id, canonical_id=canonical["canonical_id"])
+    emitter.emit("verdict.assembled", {
+        "verdict_id": verdict_id, "claim_text": claim["claim_text"],
+        "verdict_code": cached["verdict_code"], "evidence_link": cached.get("evidence_link"),
+        "confidence_source": "cached_reuse", "reuse_count": canonical.get("reuse_count"),
+        "executed_queries": executed_queries,
+    }, provider="app")
+    return {"verdict_id": verdict_id, "verdict_code": cached["verdict_code"]}
+
+
+def assemble_from_search(*, claim: dict, claim_id: str, category_id: str,
                          cache_decision: str, canonical: dict | None,
-                         search_outcome: dict | None, required_match_fields: dict,
-                         claim_type_row: dict | None, embedding: list[float] | None,
-                         oai, db, settings, emitter, degraded_reason: str | None) -> dict:
-    """FALSIFIABLE 클레임 1건의 판정 조립 → 기록. 반환: verdict row(dict)."""
+                         search_outcome: dict, falsifier_spec: dict,
+                         embedding: list[float] | None, oai, db, settings, emitter,
+                         degraded_reason: str | None) -> dict:
+    """풀/델타/재검증 검색 후 판정 조립 → canonical 축적 → 기록."""
+    required = falsifier_spec["required_match_fields"]
+    candidates = search_outcome["candidates"]
+    executed_queries = search_outcome["executed_queries"]
 
-    if cache_decision == "HIT" and canonical is not None:
-        # 캐시 히트 — 재검색 없이 canonical의 판정을 재사용 (지연시간 차이가 데모 포인트)
-        verdict_code = canonical["verdict_code"]
-        evidence_link = canonical.get("evidence_link")
-        evidence_date = canonical.get("evidence_date")
-        evidence_quote = None
-        executed_queries = canonical.get("executed_queries") or []
-        explanation = canonical.get("explanation") or ""
-        canonical_id = canonical["id"]
-        db.bump_canonical_reuse(canonical_id)
+    # ① 결정론적 REFUTED 게이트 (N1)
+    verdict_code, winning = assemble_verdict_code(
+        candidates, required, search_outcome["any_search_succeeded"]
+    )
+    evidence_link = winning["url"] if winning else None
+    evidence_date = _safe_date(winning["published_date"]) if winning else None
+
+    reasoning = _make_explanation(
+        claim=claim, verdict_code=verdict_code, winning=winning,
+        executed_queries=executed_queries, oai=oai, settings=settings,
+        emitter=emitter, degraded_reason=degraded_reason,
+    )
+
+    # canonical 축적 — 다음 유사 질문의 캐시/델타 기반 (PRD §6-3)
+    if canonical is not None:
+        canonical_id = canonical["canonical_id"]
+        db.mark_canonical_searched(canonical_id)  # last_searched_at 갱신 + 재검증 리셋
     else:
-        candidates = search_outcome["candidates"]
-        # ① 결정론적 REFUTED 게이트 (N1)
-        verdict_code, winning = assemble_verdict_code(
-            candidates, required_match_fields, search_outcome["any_search_succeeded"]
+        canonical_id = db.create_canonical(
+            representative_claim_id=claim_id,
+            claim_type_code=claim["claim_type_code"],
+            industry_category_id=category_id,
+            claim_hash=normalized_hash(claim["normalized_text"]),
+            embedding=embedding,
+            similarity_threshold_used=settings.canonical_threshold,
         )
-        evidence_link = winning["url"] if winning else None
-        evidence_date = _safe_date(winning["published_date"]) if winning else None
-        evidence_quote = winning["evidence_quote"] if winning else None
-        executed_queries = search_outcome["executed_queries"]
-        explanation = _make_explanation(
-            claim=claim, verdict_code=verdict_code, winning=winning,
-            executed_queries=executed_queries, oai=oai, settings=settings,
-            emitter=emitter, degraded_reason=degraded_reason,
-        )
-        # canonical 축적 — 다음 유사 질문의 캐시/델타 기반 (PRD §6-3)
-        canonical_id = None
-        if category_id is not None and claim_type_row is not None:
-            canonical_id = db.upsert_canonical(
-                category_id=category_id, claim_type_code=claim["claim_type_code"],
-                normalized_text=claim["normalized_text"], embedding=embedding,
-                verdict_code=verdict_code, evidence_link=evidence_link,
-                evidence_date=evidence_date, explanation=explanation,
-                executed_queries=executed_queries,
-                ttl_days=int(claim_type_row["default_ttl_days"]),
-            )
+    db.link_search_logs_to_canonical(claim_id, canonical_id)
+    db.update_claim_routing(claim_id, canonical_id=canonical_id)
 
-    row = {
-        "job_id": emitter.job_id,
-        "claim_text": claim["claim_text"],
-        "normalized_text": claim["normalized_text"],
-        "claim_category": claim["claim_category"],
-        "claim_type_code": claim.get("claim_type_code"),
-        "industry_category_id": category_id,
-        "route": route,
-        "verdict_code": verdict_code,
-        "evidence_link": evidence_link,
-        "evidence_date": evidence_date,
-        "evidence_quote": evidence_quote,
-        "explanation": explanation,
-        "executed_queries": __import__("json").dumps(executed_queries, ensure_ascii=False),
-        "cache_decision": cache_decision,
-        "canonical_id": canonical_id,
-        "degraded_reason": degraded_reason,
-    }
-    verdict_id = db.insert_verdict(row)
-    row["id"] = verdict_id
+    confidence_source = "delta_search" if cache_decision == "DELTA" else "fresh_search"
+    verdict_id = db.insert_verdict(
+        claim_id=claim_id, canonical_id=canonical_id, verdict_code=verdict_code,
+        evidence_link=evidence_link, evidence_date=evidence_date,
+        search_count=len(executed_queries), confidence_source=confidence_source,
+        required_evidence_note=degraded_reason, reasoning=reasoning,
+    )
     emitter.emit("verdict.assembled", {
         "verdict_id": verdict_id, "claim_text": claim["claim_text"],
         "verdict_code": verdict_code, "evidence_link": evidence_link,
-        "cache_decision": cache_decision, "executed_queries": executed_queries,
-        "degraded_reason": degraded_reason,
+        "confidence_source": confidence_source, "cache_decision": cache_decision,
+        "executed_queries": executed_queries, "degraded_reason": degraded_reason,
     }, provider="app")
-    return row
+    return {"verdict_id": verdict_id, "verdict_code": verdict_code}
 
 
-def persist_puffery(*, claim: dict, oai, db, settings, emitter) -> dict:
+def persist_puffery(*, claim: dict, claim_id: str, oai, db, settings, emitter) -> dict:
     """PUFFERY — 검색 tool_call 0건으로 종료하는 경로 (PRD N4).
     NOT_A_CLAIM은 판정 계약(4값) 대상이 아니므로 verdict row를 만들지 않는다."""
-    verdict_code = "PUFFERY"
-    explanation = _make_explanation(claim=claim, verdict_code="PUFFERY", winning=None,
-                                    executed_queries=[], oai=oai, settings=settings,
-                                    emitter=emitter, degraded_reason=None)
-    row = {
-        "job_id": emitter.job_id,
-        "claim_text": claim["claim_text"],
-        "normalized_text": claim["normalized_text"],
-        "claim_category": claim["claim_category"],
-        "claim_type_code": None,
-        "industry_category_id": None,
-        "route": None,
-        "verdict_code": verdict_code,
-        "evidence_link": None,
-        "evidence_date": None,
-        "evidence_quote": None,
-        "explanation": explanation,
-        "executed_queries": "[]",
-        "cache_decision": "SKIP",
-        "canonical_id": None,
-        "degraded_reason": None,
-    }
-    verdict_id = db.insert_verdict(row)
-    row["id"] = verdict_id
+    reasoning = _make_explanation(claim=claim, verdict_code="PUFFERY", winning=None,
+                                  executed_queries=[], oai=oai, settings=settings,
+                                  emitter=emitter, degraded_reason=None)
+    verdict_id = db.insert_verdict(
+        claim_id=claim_id, canonical_id=None, verdict_code="PUFFERY",
+        evidence_link=None, evidence_date=None, search_count=0,
+        confidence_source="fresh_search", required_evidence_note=None,
+        reasoning=reasoning,
+    )
     emitter.emit("verdict.assembled", {
         "verdict_id": verdict_id, "claim_text": claim["claim_text"],
-        "verdict_code": verdict_code, "cache_decision": "SKIP",
-        "tool_calls": 0,
+        "verdict_code": "PUFFERY", "search_tool_calls": 0,
     }, provider="app")
-    return row
+    return {"verdict_id": verdict_id, "verdict_code": "PUFFERY"}
 
 
 def _make_explanation(*, claim, verdict_code, winning, executed_queries, oai, settings,
@@ -132,7 +128,7 @@ def _make_explanation(*, claim, verdict_code, winning, executed_queries, oai, se
     def _template() -> str:
         n = len(executed_queries)
         if verdict_code == "REFUTED" and winning:
-            return (f"기준(범주·지표·시점)을 전부 충족하는 반례 문서가 확인되었습니다: "
+            return (f"기준(범주·지표·시점·시장)을 전부 충족하는 반례 문서가 확인되었습니다: "
                     f"{winning['url']} (발행일: {winning['published_date'] or '미상'}). "
                     f"실행한 쿼리 {n}개는 화면에 표시됩니다.")
         if verdict_code == "PUBLIC_SUBSTANTIATION_NOT_FOUND":

@@ -7,7 +7,6 @@ UI는 파이프라인의 세 계약 함수(run_job / get_job_state / submit_feed
 from __future__ import annotations
 
 import base64
-import json
 
 import streamlit as st
 
@@ -41,9 +40,14 @@ VERDICT_BADGE = {
 
 @st.cache_resource
 def get_pipeline():
+    """Streamlit Cloud 배포 경로: secrets만 넣으면 첫 부팅에서 마이그레이션 +
+    카테고리 centroid 시드까지 멱등 실행 (shell 접근이 없는 환경 대응)."""
+    from counter.bootstrap import run_bootstrap
     from counter.pipeline.orchestrator import Pipeline
 
-    return Pipeline()
+    pipeline = Pipeline()
+    run_bootstrap(pipeline.db, pipeline.oai, pipeline.settings)
+    return pipeline
 
 
 source_type = st.radio("입력 유형", ["TEXT", "URL", "IMAGE"], horizontal=True,
@@ -90,28 +94,27 @@ if job_id:
         with st.container(border=True):
             st.markdown(f"**{v['claim_text']}**")
             st.markdown(label)
-            if v.get("cache_decision") == "HIT":
-                st.markdown("♻️ **캐시 히트** — 재검색 없이 축적된 판정을 재사용했습니다.")
-            if v.get("degraded_reason"):
-                st.markdown(f"⚠️ 부분 증거로 종료: {v['degraded_reason']}")
-            st.write(v["explanation"])
+            if v.get("confidence_source") == "cached_reuse":
+                st.markdown("♻️ **캐시 히트** — 재검색 없이 축적된 판정을 재사용했습니다 "
+                            f"(이번 조회 검색 실행 {v['search_count']}회).")
+            elif v.get("confidence_source") == "delta_search":
+                st.markdown("⏱️ **델타 서치** — 축적된 증거 위에 시간 간극만 좁혀 재검색했습니다.")
+            if v.get("required_evidence_note"):
+                st.markdown(f"⚠️ 부분 증거로 종료: {v['required_evidence_note']}")
+            st.write(v.get("reasoning") or "")
             if v.get("evidence_link"):
                 st.markdown(f"**반례 문서**: [{v['evidence_link']}]({v['evidence_link']}) "
                             f"(발행일: {v.get('evidence_date') or '미상'})")
-                if v.get("evidence_quote"):
-                    st.caption(f"인용: “{v['evidence_quote']}”")
-            queries = v.get("executed_queries") or []
-            if isinstance(queries, str):
-                queries = json.loads(queries)
+            queries = pipeline.db.fetch_executed_queries(v["claim_id"], v.get("canonical_id"))
             if queries:
                 with st.expander(f"실행한 쿼리 전문 ({len(queries)}개)"):
                     for q in queries:
                         st.code(q, language=None)
             # 피드백 — 판정이 이미 출력된 뒤의 비동기 수집 (N2)
             c1, c2, _ = st.columns([1, 1, 6])
-            if c1.button("👍 동의", key=f"agree_{v['id']}"):
-                pipeline.submit_feedback(str(v["id"]), "AGREE")
+            if c1.button("👍 동의", key=f"agree_{v['verdict_id']}"):
+                pipeline.submit_feedback(v["verdict_id"], "AGREE")
                 st.toast("피드백이 기록되었습니다.")
-            if c2.button("👎 이의", key=f"dispute_{v['id']}"):
-                pipeline.submit_feedback(str(v["id"]), "DISPUTE")
+            if c2.button("👎 이의", key=f"dispute_{v['verdict_id']}"):
+                pipeline.submit_feedback(v["verdict_id"], "DISPUTE")
                 st.toast("이의가 기록되었습니다. 임계 초과 시 다음 조회 때 자동 재검증됩니다.")

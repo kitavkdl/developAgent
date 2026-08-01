@@ -1,149 +1,196 @@
--- COUNTER 스키마 (DB_SCHEMA.md 부재로 PRD/ARCHITECTURE/BUILD_PLAN/DECISIONS의 인용으로부터 재구성)
--- 원칙:
---  * job 상태 테이블은 만들지 않는다 — 상태는 trace_event에서 유도 (BUILD_PLAN §1.1)
---  * claim_type은 고정 vocabulary (PRD N5) — 시드로만 채우고 앱은 절대 INSERT하지 않음
---  * industry_category는 동적 — 에이전트가 즉석 생성 가능 (DECISIONS D-07)
---  * chk_evidence_only_if_refuted: REFUTED가 아니면 evidence_link는 DB 레벨에서 거부 (T9)
+-- COUNTER 스키마 — DB_SCHEMA.md §1 DDL 그대로 (멱등 적용을 위해 IF NOT EXISTS만 추가).
+-- 이 스키마가 지탱하는 3가지 (§0):
+--  1. REFUTED 게이트 — falsifier_spec + counterexample_candidate.applicability_check
+--  2. 캐시/중복탐지 — claim_canonical (업종 파티션 내에서만 매칭, D-08)
+--  3. 델타 서치 — last_searched_at vs last_seen_at 구분 + search_mode
+-- 원본과 다른 점 하나: claim.canonical_id FK 때문에 claim_canonical을 claim보다 먼저 생성.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 4값 판정 계약 (PRD §2)
-CREATE TABLE IF NOT EXISTS verdict_type (
-    code        TEXT PRIMARY KEY,
-    label_ko    TEXT NOT NULL,
-    description TEXT NOT NULL
-);
+-- ─────────────────────────────────────────────
+-- 룩업 테이블
+-- ─────────────────────────────────────────────
 
--- 고정 vocabulary. REFUTED 기준(falsifier_spec)과 연결되므로 동적 생성 금지 (PRD N5)
-CREATE TABLE IF NOT EXISTS claim_type (
-    code                  TEXT PRIMARY KEY,
-    label_ko              TEXT NOT NULL,
-    -- 검색 예산: 쿼리 개수 상한 (ARCHITECTURE §3 — 하드코딩 금지, 여기서 읽음)
-    default_search_budget INT  NOT NULL,
-    -- NOT_REFUTED 경로 비용 상한: 쿼리당 평가 대상 문서 수 (DECISIONS D-13)
-    max_evidence_per_query INT NOT NULL,
-    -- 캐시 TTL (일). 유형별 14~180, 미검증 운영 기본값 (DECISIONS D-11)
-    default_ttl_days      INT  NOT NULL
-);
-
--- claim_type별 "무엇이 반례로 인정되는가" — REFUTED 게이트의 기준 (PRD N1)
-CREATE TABLE IF NOT EXISTS falsifier_spec (
-    id                    SERIAL PRIMARY KEY,
-    claim_type_code       TEXT NOT NULL UNIQUE REFERENCES claim_type(code),
-    -- {"scope_match": bool, "metric_match": bool, "timeframe_match": bool, "target_match": bool}
-    -- true인 필드가 전부 충족되어야만 코드가 REFUTED를 조립한다
-    required_match_fields JSONB NOT NULL,
-    prompt_version        TEXT  NOT NULL
-);
-
--- 업종 카테고리 — 동적 생성 허용. canonical 매칭의 파티션 키 (DECISIONS D-07, D-08)
+-- 업종 카테고리: 시드 + 에이전트 동적 생성
 CREATE TABLE IF NOT EXISTS industry_category (
-    id                 SERIAL PRIMARY KEY,
-    code               TEXT NOT NULL UNIQUE,
-    label_ko           TEXT NOT NULL,
-    centroid_embedding vector(1536),
-    created_by         TEXT NOT NULL DEFAULT 'seed',  -- 'seed' | 'agent_generated'
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    category_id      TEXT PRIMARY KEY,              -- slug. 예: COSMETICS, DRONE_AG_SERVICE
+    label            TEXT NOT NULL,                 -- 사람이 읽는 이름
+    description      TEXT,
+    centroid_embedding VECTOR(1536),                -- 유사도 매칭 기준
+    created_by       TEXT NOT NULL DEFAULT 'seed',  -- seed | agent_generated
+    member_claim_count INT NOT NULL DEFAULT 0,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_category_vec ON industry_category
+    USING ivfflat (centroid_embedding vector_cosine_ops);
+
+-- 클레임 유형: 고정 vocabulary. 절대 동적 생성하지 않음 (PRD N5)
+CREATE TABLE IF NOT EXISTS claim_type (
+    claim_type_code       TEXT PRIMARY KEY,
+    description           TEXT,
+    requires_search       BOOLEAN NOT NULL,
+    default_search_budget INT NOT NULL,
+    default_ttl_days      INT NOT NULL,             -- 델타 서치 트리거 기준
+    max_evidence_per_query INT NOT NULL DEFAULT 3   -- S5 평가 대상 상한 (쿼리 1개당). D-13
 );
 
--- 검증 완료 클레임의 canonical 원장 — 캐시/델타 서치의 기반 (PRD §6-3)
-CREATE TABLE IF NOT EXISTS claim_canonical (
-    id                   SERIAL PRIMARY KEY,
-    industry_category_id INT  NOT NULL REFERENCES industry_category(id),
-    claim_type_code      TEXT NOT NULL REFERENCES claim_type(code),
-    normalized_text      TEXT NOT NULL,
-    normalized_hash      TEXT NOT NULL,
-    embedding            vector(1536),
-    verdict_code         TEXT NOT NULL REFERENCES verdict_type(code),
-    evidence_link        TEXT,
-    evidence_date        DATE,
-    explanation          TEXT,
-    executed_queries     JSONB NOT NULL DEFAULT '[]',
-    ttl_days             INT  NOT NULL,
-    verified_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    reuse_count          INT  NOT NULL DEFAULT 0,
-    agree_count          INT  NOT NULL DEFAULT 0,
-    dispute_count        INT  NOT NULL DEFAULT 0,
-    needs_reverification BOOLEAN NOT NULL DEFAULT false,
-    CONSTRAINT chk_evidence_only_if_refuted
-        CHECK (verdict_code = 'REFUTED' OR evidence_link IS NULL),
-    -- 매칭은 같은 업종 파티션 안에서만 (D-08) — 해시 유니크도 파티션 단위
-    CONSTRAINT uq_canonical_partition_hash UNIQUE (industry_category_id, normalized_hash)
-);
-CREATE INDEX IF NOT EXISTS idx_canonical_partition ON claim_canonical (industry_category_id);
-
--- 최종 판정 기록 (사용자에게 나간 응답의 원본)
-CREATE TABLE IF NOT EXISTS verdict (
-    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    job_id               UUID NOT NULL,
-    claim_text           TEXT NOT NULL,
-    normalized_text      TEXT NOT NULL,
-    claim_category       TEXT NOT NULL,  -- FALSIFIABLE | PUFFERY | NOT_A_CLAIM
-    claim_type_code      TEXT REFERENCES claim_type(code),
-    industry_category_id INT  REFERENCES industry_category(id),
-    route                TEXT,           -- SCIENTIFIC | GENERAL | NULL(검색 미실행)
-    verdict_code         TEXT NOT NULL REFERENCES verdict_type(code),
-    evidence_link        TEXT,
-    evidence_date        DATE,
-    evidence_quote       TEXT,
-    explanation          TEXT NOT NULL,
-    executed_queries     JSONB NOT NULL DEFAULT '[]',
-    cache_decision       TEXT,           -- HIT | MISS | DELTA | REVERIFY | SKIP(검색 미실행)
-    canonical_id         INT REFERENCES claim_canonical(id),
-    degraded_reason      TEXT,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- T9: verdict_code != REFUTED 인데 evidence_link 있음 → DB가 거부
-    CONSTRAINT chk_evidence_only_if_refuted
-        CHECK (verdict_code = 'REFUTED' OR evidence_link IS NULL)
-);
-CREATE INDEX IF NOT EXISTS idx_verdict_job ON verdict (job_id);
-
--- S5에서 평가된 반례 후보. "후보는 많은데 REFUTED는 적다" KPI의 원천 (BUILD_PLAN §1.3)
-CREATE TABLE IF NOT EXISTS evidence_candidate (
-    id             SERIAL PRIMARY KEY,
-    job_id         UUID NOT NULL,
-    claim_text     TEXT NOT NULL,
-    url            TEXT NOT NULL,
-    title          TEXT,
-    snippet        TEXT,
-    published_date DATE,
-    applicability  JSONB NOT NULL,  -- {scope_match, metric_match, timeframe_match, target_match, ...}
-    passed_gate    BOOLEAN NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+-- 판정 라벨: 4값 고정
+CREATE TABLE IF NOT EXISTS verdict_type (
+    verdict_code TEXT PRIMARY KEY,
+    description  TEXT
 );
 
--- 판정 이후 비동기 피드백 (PRD N2 — 응답을 절대 블로킹하지 않음)
-CREATE TABLE IF NOT EXISTS feedback (
-    id         SERIAL PRIMARY KEY,
-    verdict_id UUID NOT NULL REFERENCES verdict(id),
-    reaction   TEXT NOT NULL CHECK (reaction IN ('AGREE', 'DISPUTE')),
-    note       TEXT,
+-- 반증 조건 명세: REFUTED 게이트의 근거
+CREATE TABLE IF NOT EXISTS falsifier_spec (
+    falsifier_spec_id     UUID PRIMARY KEY,
+    claim_type_code       TEXT NOT NULL REFERENCES claim_type,
+    required_match_fields JSONB NOT NULL,   -- {"scope":true,"metric":false,...}
+    prompt_version        TEXT NOT NULL,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ─────────────────────────────────────────────
+-- 실행 데이터
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS session (
+    session_id TEXT PRIMARY KEY,
+    source_app TEXT NOT NULL,        -- web | demo
+    user_ref   TEXT,                 -- 익명 식별자. 개인정보 저장 금지
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- LINER 호출 감사 로그 (request_id 포함 — MODELS_AND_APIS §3.3)
-CREATE TABLE IF NOT EXISTS search_log (
-    id           SERIAL PRIMARY KEY,
-    job_id       UUID NOT NULL,
-    provider     TEXT NOT NULL,
-    mode         TEXT NOT NULL,   -- web | scholar
-    query_text   TEXT NOT NULL,
-    request_id   TEXT,
-    result_count INT,
-    status       TEXT NOT NULL,   -- ok | timeout | rate_limited | error
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS ad (
+    ad_id          TEXT PRIMARY KEY,
+    session_id     TEXT REFERENCES session,
+    source_type    TEXT NOT NULL,    -- IMAGE | URL | TEXT
+    raw_input      TEXT,
+    extracted_text TEXT,
+    ocr_fallback_used BOOLEAN DEFAULT FALSE,
+    brand_name     TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 이벤트 스트림 (대회 규칙 3). 별도 SSE 서버 없이 이 테이블을 폴링 (D-14)
-CREATE TABLE IF NOT EXISTS trace_event (
-    id         BIGSERIAL PRIMARY KEY,
-    job_id     UUID NOT NULL,
-    seq        INT  NOT NULL,     -- job 내 단조 증가, 종료 이벤트 정확히 1회
-    event_type TEXT NOT NULL,
-    provider   TEXT,              -- liner | openai | app — 세컨드 화면에서 색 구분
-    payload    JSONB NOT NULL DEFAULT '{}',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_trace_event_job_seq UNIQUE (job_id, seq)
+-- 캐시의 핵심: 동일/유사 클레임을 하나로 묶는 대표 노드
+-- (claim.canonical_id가 참조하므로 claim보다 먼저 생성)
+CREATE TABLE IF NOT EXISTS claim_canonical (
+    canonical_id         TEXT PRIMARY KEY,
+    representative_claim_id TEXT,
+    claim_type_code      TEXT REFERENCES claim_type,
+    industry_category_id TEXT NOT NULL REFERENCES industry_category,  -- 파티션 키
+    claim_hash           TEXT NOT NULL,
+    embedding_centroid   VECTOR(1536),
+    member_count         INT NOT NULL DEFAULT 1,
+    reuse_count          INT NOT NULL DEFAULT 0,   -- 캐시 히트 횟수 (KPI)
+    agree_count          INT NOT NULL DEFAULT 0,
+    dispute_count        INT NOT NULL DEFAULT 0,
+    needs_reverification BOOLEAN NOT NULL DEFAULT FALSE,
+    first_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at         TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 조회(캐시 포함) 시각
+    last_searched_at     TIMESTAMPTZ,                          -- 실제 검색 실행 시각
+    similarity_threshold_used REAL
 );
--- 폴링 쿼리(WHERE job_id=%s AND seq>%s ORDER BY seq)가 반복 실행되므로 필수 (BUILD_PLAN §1.2)
-CREATE INDEX IF NOT EXISTS idx_trace_event_job_seq ON trace_event (job_id, seq);
+CREATE INDEX IF NOT EXISTS idx_canonical_partition ON claim_canonical(industry_category_id, claim_hash);
+CREATE INDEX IF NOT EXISTS idx_canonical_vec ON claim_canonical USING ivfflat (embedding_centroid vector_cosine_ops);
+
+CREATE TABLE IF NOT EXISTS claim (
+    claim_id            TEXT PRIMARY KEY,
+    ad_id               TEXT REFERENCES ad,
+    claim_text          TEXT NOT NULL,
+    normalized_text     TEXT NOT NULL,
+    claim_hash          TEXT NOT NULL,        -- normalized_text의 SHA-256
+    embedding           VECTOR(1536),
+    claim_category      TEXT NOT NULL,        -- FALSIFIABLE | PUFFERY | NOT_A_CLAIM
+    claim_type_code     TEXT REFERENCES claim_type,
+    verification_route  TEXT,                 -- SCIENTIFIC | GENERAL | NULL
+    industry_category_id TEXT REFERENCES industry_category,
+    industry_similarity  REAL,
+    canonical_id        TEXT REFERENCES claim_canonical,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_claim_hash ON claim(claim_hash);
+CREATE INDEX IF NOT EXISTS idx_claim_vec ON claim USING ivfflat (embedding vector_cosine_ops);
+
+CREATE TABLE IF NOT EXISTS search_log (
+    log_id       TEXT PRIMARY KEY,
+    canonical_id TEXT REFERENCES claim_canonical,
+    claim_id     TEXT REFERENCES claim,
+    provider     TEXT NOT NULL,      -- liner
+    search_tool  TEXT NOT NULL,      -- liner_web | liner_scholar
+    search_mode  TEXT NOT NULL,      -- full | delta
+    date_from    DATE,               -- delta 모드에서만
+    query_text   TEXT NOT NULL,
+    hypothesis   TEXT,               -- 이 쿼리가 검증하려는 반증 가설
+    language     TEXT,
+    result_count INT,
+    latency_ms   INT,
+    status       TEXT NOT NULL,      -- success | timeout | error | empty
+    provider_request_id TEXT,
+    searched_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS evidence (
+    evidence_id    TEXT PRIMARY KEY,
+    log_id         TEXT REFERENCES search_log,
+    url            TEXT NOT NULL,
+    title          TEXT,
+    snippet        TEXT,
+    published_date DATE,             -- 없으면 NULL. 절대 추측해서 채우지 말 것
+    source_domain  TEXT,
+    access_level   TEXT,             -- metadata | snippet | abstract
+    retrieved_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- REFUTED 게이트의 입력
+CREATE TABLE IF NOT EXISTS counterexample_candidate (
+    candidate_id        TEXT PRIMARY KEY,
+    canonical_id        TEXT REFERENCES claim_canonical,
+    evidence_id         TEXT REFERENCES evidence,
+    falsifier_spec_id   UUID REFERENCES falsifier_spec,
+    applicability_check JSONB NOT NULL,   -- {"scope_match":true,"metric_match":false,...}
+    reasoning           TEXT,
+    generated_by_agent  TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS verdict (
+    verdict_id        TEXT PRIMARY KEY,
+    claim_id          TEXT REFERENCES claim,
+    canonical_id      TEXT REFERENCES claim_canonical,
+    verdict_code      TEXT NOT NULL REFERENCES verdict_type,
+    evidence_link     TEXT,          -- REFUTED가 아니면 반드시 NULL
+    evidence_date     DATE,
+    search_count      INT NOT NULL,
+    confidence_source TEXT NOT NULL, -- fresh_search | cached_reuse | delta_search
+    required_evidence_note TEXT,
+    reasoning         TEXT,
+    assembled_by      TEXT NOT NULL, -- 항상 에이전트. 사람 값이 들어가면 버그
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- DB가 물리적으로 근거 없는 REFUTED를 거부 (T9)
+DO $$ BEGIN
+    ALTER TABLE verdict ADD CONSTRAINT chk_evidence_only_if_refuted
+      CHECK (verdict_code = 'REFUTED' OR evidence_link IS NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- 판정 이후 비동기 수집. 절대 응답을 블로킹하지 않음 (PRD N2)
+CREATE TABLE IF NOT EXISTS feedback (
+    feedback_id TEXT PRIMARY KEY,
+    verdict_id  TEXT REFERENCES verdict,
+    reaction    TEXT NOT NULL,       -- AGREE | DISPUTE
+    user_note   TEXT,
+    source      TEXT NOT NULL,       -- end_user | team | demo_judge
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS trace_event (
+    event_id   BIGSERIAL PRIMARY KEY,
+    job_id     TEXT NOT NULL,
+    seq        INT NOT NULL,
+    event_type TEXT NOT NULL,
+    provider   TEXT,                 -- liner | openai | null
+    payload    JSONB NOT NULL,       -- 키/헤더는 마스킹, 나머지는 raw
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- 폴링(WHERE job_id=.. AND seq>..)이 핫패스 — 인덱스 없으면 폴링마다 풀스캔 (D-14)
+CREATE INDEX IF NOT EXISTS idx_trace_event_job_seq ON trace_event(job_id, seq);

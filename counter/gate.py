@@ -1,28 +1,36 @@
-"""결정론적 REFUTED 게이트 (PRD N1 — 불가침 규칙, 유일한 정확성 방어선).
+"""결정론적 REFUTED 게이트 (PRD N1, DB_SCHEMA.md §3 — 유일한 정확성 방어선).
 
 LLM이 "이건 반례입니다"라고 선언해도 REFUTED가 되지 않는다.
-falsifier_spec.required_match_fields에서 true로 지정된 필드가 '전부' true일 때만
+falsifier_spec.required_match_fields({"scope":true,"metric":false,...})에서 true인
+차원이 '전부' applicability_check의 해당 "<field>_match"에서 true일 때만
 이 코드가 REFUTED를 조립한다. 사람 검수 단계가 설계상 없으므로(N2),
 이 함수와 그 테스트(T2)가 오판정을 막는 전부다.
+
+금지 사항 (DB_SCHEMA.md §3):
+- LLM에게 최종 verdict_code를 생성하게 하지 말 것 — LLM은 boolean만 생성.
+- 문자열 매칭만으로 REFUTED를 확정하지 말 것.
+- evidence_link에 검색 결과에 없던 URL을 넣지 말 것 (N6).
 """
 from __future__ import annotations
 
-MATCH_FIELDS = ("scope_match", "metric_match", "timeframe_match", "target_match")
+# falsifier 차원 (DB_SCHEMA.md falsifier_spec 초기값 표)
+FALSIFIER_FIELDS = ("scope", "metric", "timeframe", "target_entity", "geography")
 
 
 def passes_refuted_gate(applicability_check: dict, required_match_fields: dict) -> bool:
-    """required_match_fields에서 true인 필드가 전부 applicability_check에서 true인가.
+    """required_match_fields에서 true인 차원 f가 전부 applicability_check[f+"_match"]에서
+    true인가 (DB_SCHEMA.md §3의 assemble_verdict 조건과 동일).
 
-    - 평가 결과에 필드가 아예 없으면 false로 간주 (fail-closed)
-    - insufficient_access=true인 평가는 게이트를 통과할 수 없음 (추측 기반 true 차단)
-    - is_syndicated_copy=true는 독립 증거가 아니므로 단독으로는 통과 불가
+    - 평가 결과에 필드가 없으면 false 간주 (fail-closed)
+    - insufficient_access=true → 추측 기반 true 차단, 통과 불가
+    - is_syndicated_copy=true → 독립 증거 아님, 단독 통과 불가
     """
     if applicability_check.get("insufficient_access"):
         return False
     if applicability_check.get("is_syndicated_copy"):
         return False
     return all(
-        bool(applicability_check.get(field))
+        bool(applicability_check.get(f"{field}_match"))
         for field, required in required_match_fields.items()
         if required
     )

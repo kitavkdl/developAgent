@@ -4,12 +4,12 @@
 """
 from __future__ import annotations
 
-import glob
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from counter.bootstrap import migration_files  # noqa: E402
 from counter.db import Db  # noqa: E402
 from counter.settings import load_settings  # noqa: E402
 
@@ -17,7 +17,7 @@ from counter.settings import load_settings  # noqa: E402
 def main() -> None:
     settings = load_settings()
     db = Db(settings)
-    files = sorted(glob.glob(os.path.join(os.path.dirname(__file__), "..", "db", "migrations", "*.sql")))
+    files = migration_files()
     db.migrate(files)
     print(f"적용 완료: {len(files)}개 파일")
     for f in files:

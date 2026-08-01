@@ -22,23 +22,25 @@ def test_clinical_completion_forced_scientific():
     assert out["route"] == "GENERAL" and not out["forced_by_code"]
 
 
-# B08 — 캐시 라우팅 결정론 (ARCHITECTURE §1 S3의 4규칙)
-def _canonical(days_ago=1, ttl=30, needs_reverif=False):
-    return {"verified_at": NOW - timedelta(days=days_ago), "ttl_days": ttl,
+# B08 — 캐시 라우팅 결정론 (DB_SCHEMA.md §2 route_cache의 규칙)
+def _canonical(searched_days_ago=1, needs_reverif=False, never_searched=False):
+    return {"last_searched_at": None if never_searched
+            else NOW - timedelta(days=searched_days_ago),
             "needs_reverification": needs_reverif}
 
 
 def test_cache_rules():
-    assert decide_cache_action(None, now=NOW, supports_date_filter=True) == ("MISS", None)
-    assert decide_cache_action(_canonical(needs_reverif=True), now=NOW,
-                               supports_date_filter=True) == ("REVERIFY", None)
-    assert decide_cache_action(_canonical(days_ago=5, ttl=30), now=NOW,
-                               supports_date_filter=True) == ("HIT", None)
-    decision, date_from = decide_cache_action(_canonical(days_ago=60, ttl=30), now=NOW,
-                                              supports_date_filter=True)
+    kw = {"ttl_days": 30, "now": NOW, "supports_date_filter": True}
+    assert decide_cache_action(None, **kw) == ("MISS", None)
+    assert decide_cache_action(_canonical(needs_reverif=True), **kw) == ("REVERIFY", None)
+    # TTL 기준은 last_seen_at이 아니라 last_searched_at (DB_SCHEMA.md §1 주의)
+    assert decide_cache_action(_canonical(searched_days_ago=5), **kw) == ("HIT", None)
+    decision, date_from = decide_cache_action(_canonical(searched_days_ago=60), **kw)
     assert decision == "DELTA" and date_from is not None
+    # 검색 이력이 아예 없으면 풀 검색
+    assert decide_cache_action(_canonical(never_searched=True), **kw) == ("MISS", None)
     # LINER 날짜필터 미지원 → 델타 스코프 아웃, fresh/full 2-state 축소 (PRD §10-4)
-    assert decide_cache_action(_canonical(days_ago=60, ttl=30), now=NOW,
+    assert decide_cache_action(_canonical(searched_days_ago=60), ttl_days=30, now=NOW,
                                supports_date_filter=False) == ("MISS", None)
 
 

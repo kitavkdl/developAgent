@@ -35,20 +35,36 @@ LLM은 각 단계 안에서만 판단한다.
 
 각 단계 코드 상단에 "왜 이 순서인가"가 주석으로 남아 있습니다 (`counter/pipeline/`).
 
-## 실행
+## 실행 (로컬)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # 실제 값 입력 (커밋 금지)
-python -m scripts.migrate            # Neon(PostgreSQL + pgvector)에 스키마 적용
-python -m scripts.seed_categories    # 업종 centroid 임베딩 시드 (OpenAI 키 필요)
 streamlit run app.py
 ```
 
+앱 첫 부팅 시 마이그레이션(Neon PostgreSQL + pgvector)과 업종 centroid 임베딩 시드가
+**자동으로 멱등 실행**됩니다 (`counter/bootstrap.py`). 수동 실행이 필요하면
+`python -m scripts.migrate`, `python -m scripts.seed_categories`.
+
 - 메인 화면: 입력 → 판정 결과 (+ 판정 후 비동기 👍/👎 피드백)
 - **Raw Trace** 페이지: `tool.call`/`tool.result` 무가공 스트림 (대회 규칙 3 — 세컨드 화면)
-- **Stats** 페이지: 게이트 통과율·캐시 재사용·판정 분포
+- **Stats** 페이지: 게이트 통과율·캐시 재사용·델타 절감·판정 분포
+
+## 배포 (Streamlit Community Cloud)
+
+1. 이 리포를 GitHub에 push (public)
+2. [share.streamlit.io](https://share.streamlit.io) → **Deploy a public app from GitHub** →
+   리포 선택, main 브랜치, entrypoint `app.py`
+3. 앱 설정 → **Secrets**에 `.streamlit/secrets.toml.example` 내용을 붙여넣고 실제 값 입력
+   (`OPENAI_API_KEY`, `LINER_API_KEY`, Neon의 `DATABASE_URL` — pooled connection string 권장)
+4. 재시작하면 첫 부팅에서 스키마/시드가 자동 적용됨
+
+⚠️ LINER 엔드포인트/파라미터는 실측 전 미확인 상태입니다 (`MODELS_AND_APIS.md` §3.2).
+실측 후 Secrets의 `LINER_API_BASE`/`LINER_*_PATH`/`LINER_SUPPORTS_DATE_FILTER`만 수정하면
+됩니다 (코드 변경 불필요). 날짜필터 미지원 시 델타 서치는 자동으로 스코프 아웃되고
+캐시는 fresh/full 2-state로 동작합니다.
 
 ## 테스트
 

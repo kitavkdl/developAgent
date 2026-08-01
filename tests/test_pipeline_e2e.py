@@ -25,6 +25,7 @@ def test_puffery_zero_search_tool_calls():
     assert _terminals(db, job_id) == ["job.completed"]
     v = db.fetch_verdicts(job_id)
     assert len(v) == 1 and v[0]["verdict_code"] == "PUFFERY"
+    assert v[0]["search_count"] == 0
 
 
 # 풀 파이프라인 — REFUTED (게이트 전부 충족)
@@ -35,7 +36,10 @@ def test_full_pipeline_refuted():
     v = db.fetch_verdicts(job_id)[0]
     assert v["verdict_code"] == "REFUTED"
     assert v["evidence_link"] == "https://news.example.com/a"
+    assert v["confidence_source"] == "fresh_search"
     assert _terminals(db, job_id) == ["job.completed"]
+    # evidence / counterexample_candidate가 실제로 기록됨 (DB_SCHEMA.md 계약)
+    assert db.evidences and db.candidates
 
 
 # T2 e2e — 필수 필드 미충족이면 REFUTED 안 됨 + D-03 문구 검증 (T7)
@@ -52,10 +56,10 @@ def test_partial_match_stays_not_refuted_with_honest_wording():
     assert v["verdict_code"] == "NOT_REFUTED"
     assert v["evidence_link"] is None  # T9 상당 — Fake가 제약 위반 시 raise
     for banned in ("사실로 보입니다", "확인되었습니다", "문제없습니다"):
-        assert banned not in v["explanation"]
+        assert banned not in v["reasoning"]
 
 
-# T3 — 같은 클레임 2회 → 2번째는 cache HIT (재검색 없음)
+# T3 — 같은 클레임 2회 → 2번째는 cache HIT (재검색 없음, cached_reuse)
 def test_second_run_cache_hit():
     db = FakeDb()
     liner = FakeLiner([make_result()])
@@ -68,7 +72,11 @@ def test_second_run_cache_hit():
                  if e["event_type"] == "cache.decision"]
     assert decisions == ["HIT"]
     v = db.fetch_verdicts(job2)[0]
-    assert v["cache_decision"] == "HIT" and v["verdict_code"] == "REFUTED"
+    assert v["confidence_source"] == "cached_reuse"
+    assert v["verdict_code"] == "REFUTED"  # canonical의 최신 verdict 재사용
+    assert v["search_count"] == 0
+    canonical = next(iter(db.canonicals.values()))
+    assert canonical["reuse_count"] == 1 and canonical["member_count"] >= 2
 
 
 # T4 — 다른 업종 파티션의 유사 문구는 canonical 매칭 안 됨 (D-08)
@@ -78,16 +86,17 @@ def test_no_cross_partition_cache_match():
     db = FakeDb()
     p = make_pipeline(db=db)
     job1 = p.run_job("TEXT", "국내 최초 진공 블렌더")
-    assert db.fetch_verdicts(job1)[0]["cache_decision"] == "MISS"
+    assert db.fetch_verdicts(job1)[0]["confidence_source"] == "fresh_search"
     claim = {"normalized_text": "국내 최초 진공 블렌더", "claim_text": "국내 최초 진공 블렌더"}
-    decision, _, canonical = run_cache_check(claim, 999, [0.1, 0.2, 0.3], db, p.settings)
-    assert decision == "MISS" and canonical is None  # 다른 category_id → 매칭 불가
+    decision, _, canonical = run_cache_check(claim, "OTHER_CATEGORY", [0.1, 0.2, 0.3],
+                                             180, db, p.settings)
+    assert decision == "MISS" and canonical is None  # 다른 파티션 → 매칭 불가
 
 
 # T5 — 유사도 임계 미달 → 신규 카테고리 생성 후 정상 판정
 def test_new_category_created_when_below_threshold():
     db = FakeDb()
-    db.categories = [{"id": 1, "code": "cosmetics_beauty", "label_ko": "화장품/뷰티",
+    db.categories = [{"category_id": "BEAUTY_PERSONAL_CARE", "label": "뷰티/퍼스널케어",
                       "created_by": "seed", "similarity": 0.10}]  # 임계(0.75) 미달
     p = make_pipeline(db=db)
     job_id = p.run_job("TEXT", "드론 방제 국내 최초")
@@ -105,10 +114,10 @@ def test_liner_timeout_degrades_deterministically():
     assert _terminals(db, job_id) == ["job.degraded"]
     v = db.fetch_verdicts(job_id)[0]
     assert v["verdict_code"] == "PUBLIC_SUBSTANTIATION_NOT_FOUND"
-    assert v["degraded_reason"]
+    assert v["required_evidence_note"]
 
 
-# T10/T15 — 피드백은 응답 이후 비동기, dispute 임계 초과 → 재검증 플래그 → REVERIFY
+# T10/B15 — 피드백은 응답 이후 비동기, dispute 임계 초과 → 재검증 → REVERIFY
 def test_feedback_dispute_triggers_reverification():
     db = FakeDb()
     settings = Settings(job_timeout_seconds=300.0,
@@ -118,13 +127,15 @@ def test_feedback_dispute_triggers_reverification():
     verdict = db.fetch_verdicts(job1)[0]  # 응답은 피드백 없이 이미 완료 (N2)
     assert db.feedback == []
     for _ in range(3):
-        p.submit_feedback(verdict["id"], "DISPUTE")
+        p.submit_feedback(verdict["verdict_id"], "DISPUTE")
     canonical = next(iter(db.canonicals.values()))
     assert canonical["needs_reverification"] is True
     job2 = p.run_job("TEXT", "국내 최초 진공 블렌더")
     decisions = [e["payload"]["decision"] for e in _events(db, job2)
                  if e["event_type"] == "cache.decision"]
     assert decisions == ["REVERIFY"]  # 풀 재검색
+    # 재검색 완료 후 자가교정 리셋 (DB_SCHEMA.md §2)
+    assert canonical["needs_reverification"] is False
 
 
 # T11 — JOB_TIMEOUT_SECONDS 초과 → DEGRADED 결정론적 종료 (D-13)
@@ -134,14 +145,14 @@ def test_job_timeout_degrades():
     job_id = p.run_job("TEXT", "국내 최초 진공 블렌더")
     assert _terminals(db, job_id) == ["job.degraded"]
     v = db.fetch_verdicts(job_id)[0]
-    assert "JOB_TIMEOUT_SECONDS" in (v["degraded_reason"] or "")
+    assert "JOB_TIMEOUT_SECONDS" in (v["required_evidence_note"] or "")
 
 
-# 종료 이벤트 정확히 1회 (BUILD_PLAN §1.2)
+# 종료 이벤트 정확히 1회 (BUILD_PLAN §1.2) + seq 단조 증가
 def test_terminal_event_exactly_once():
     db = FakeDb()
     p = make_pipeline(db=db)
     job_id = p.run_job("TEXT", "국내 최초 진공 블렌더")
     assert len(_terminals(db, job_id)) == 1
     seqs = [e["seq"] for e in _events(db, job_id)]
-    assert seqs == sorted(seqs) and len(seqs) == len(set(seqs))  # 단조 증가
+    assert seqs == sorted(seqs) and len(seqs) == len(set(seqs))

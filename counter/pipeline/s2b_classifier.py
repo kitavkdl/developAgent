@@ -18,7 +18,7 @@ from .. import prompts, schemas
 
 def resolve_industry_category(claim: dict, intake_result: dict, oai, db, settings,
                               emitter) -> tuple[dict, float | None, bool, list[float]]:
-    """반환: (category_row, similarity, is_new, claim_embedding)
+    """반환: (category_row{category_id,label,created_by}, similarity, is_new, claim_embedding)
 
     분류 실패 시 기본 카테고리로 폴백하고 파이프라인은 계속 진행 (ARCHITECTURE §7).
     """
@@ -38,8 +38,9 @@ def resolve_industry_category(claim: dict, intake_result: dict, oai, db, setting
             schema_name="category_label", schema=schemas.CATEGORY_LABEL_SCHEMA,
             emitter=emitter, stage="S2B_LABELER",
         )
-        code = _slugify(label.get("code") or "new_category")
-        row = db.create_category(code, label.get("label_ko") or code, context_embedding)
+        category_id = _slugify(label.get("code") or "NEW_CATEGORY")
+        row = db.create_category(category_id, label.get("label_ko") or category_id,
+                                context_embedding)
         return row, None, True, embedding
     except Exception:
         # 카테고리는 매칭 파티션 키일 뿐 판정 로직에 관여하지 않으므로,
@@ -48,5 +49,5 @@ def resolve_industry_category(claim: dict, intake_result: dict, oai, db, setting
 
 
 def _slugify(s: str) -> str:
-    s = re.sub(r"[^a-z0-9_]+", "_", s.strip().lower()).strip("_")
-    return s[:50] or "new_category"
+    s = re.sub(r"[^A-Za-z0-9_]+", "_", s.strip()).strip("_").upper()
+    return s[:50] or "NEW_CATEGORY"
