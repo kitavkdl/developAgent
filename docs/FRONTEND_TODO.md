@@ -40,13 +40,13 @@
 
 ## P2.1 — 단일 페이지 유동 전환
 
-- [ ] `hero` / `stage` 조건부 화면 교체를 영속적인 workspace shell로 변경
-- [ ] idle 중앙 입력 → active 좌측 35% 입력 / 우측 65% 결과 전환
-- [ ] 실행 중·완료 후에도 동일한 SearchBar 인스턴스와 입력값 유지
-- [ ] 접힌 결과 패널을 `aria-hidden` + `inert`로 상호작용에서 제외
-- [ ] 960px 이하에서 입력 위 / 결과 아래의 1열 레이아웃 제공
-- [ ] `prefers-reduced-motion`에서 위치·크기 모션 제거
-- [ ] `npm run lint`와 `npm run build` 통과
+- [x] `hero` / `stage` 조건부 화면 교체를 영속적인 workspace shell로 변경
+- [x] idle 중앙 입력 → active 좌측 35% 입력 / 우측 65% 결과 전환
+- [x] 실행 중·완료 후에도 동일한 SearchBar 인스턴스와 입력값 유지
+- [x] 접힌 결과 패널을 `aria-hidden` + `inert`로 상호작용에서 제외
+- [x] 960px 이하에서 입력 위 / 결과 아래의 1열 레이아웃 제공
+- [x] `prefers-reduced-motion`에서 위치·크기 모션 제거
+- [x] `npm run lint`와 `npm run build` 통과
 
 ## P3 — 이후 (제출 / 실연동 — 이 단계 비범위)
 
@@ -62,4 +62,4 @@
 - [x] miss + puffery + (hit|delta)가 스위처로 구분된다
 - [x] 그래프에 Claim→…→Candidate→Verdict 연결 성장이 보인다
 - [x] D-02 / D-03 / N4 카피 가드 위반 없음
-- [ ] 입력 후 새 페이지처럼 교체되지 않고 같은 셸에서 결과 패널이 열린다
+- [x] 입력 후 새 페이지처럼 교체되지 않고 같은 셸에서 결과 패널이 열린다
