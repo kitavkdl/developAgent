@@ -20,7 +20,6 @@ from counter.ui_theme import (
     plain_chip,
     plotly_layout,
     provider_chip,
-    render_snake,
 )
 
 st.set_page_config(page_title="COUNTER — Raw Trace", layout="wide")
@@ -80,14 +79,10 @@ st.markdown(
 )
 st.write("")
 
-# ---- 파이프라인 처리 순서 — snake 로드맵. 노드 클릭 시 아래 상세 카드로 스크롤 ----
+# ---- 단계별 이벤트 건수 — 어느 단계가 이벤트를 가장 많이 만드는지 비교 ----
 if events:
     df_ev = pd.DataFrame(events)
     df_ev["provider"] = df_ev["provider"].fillna("app")
-
-    st.markdown('<div class="ctr-panel-header">파이프라인 처리 순서 (노드 클릭 시 상세로 이동)</div>',
-                unsafe_allow_html=True)
-    st.markdown(render_snake(events), unsafe_allow_html=True)
 
     st.markdown('<div class="ctr-panel-header">단계별 이벤트 건수</div>',
                 unsafe_allow_html=True)
@@ -110,7 +105,7 @@ for ev in events:
     highlight = payload.get("is_new") if isinstance(payload, dict) else False
 
     st.markdown(
-        f'<div id="trace-{ev["seq"]}" class="ctr-trace {"is-raw" if is_raw else ""}">'
+        f'<div class="ctr-trace {"is-raw" if is_raw else ""}">'
         f'<div class="ctr-trace-meta">'
         f'<span>#{ev["seq"]:03d}</span> {provider_chip(provider)} '
         f'<strong style="color:#e7ebe8;text-transform:none;letter-spacing:0;">{ev["event_type"]}</strong>'
