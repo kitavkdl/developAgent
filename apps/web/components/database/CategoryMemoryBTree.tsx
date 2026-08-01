@@ -76,6 +76,8 @@ function cascadeStyle(index: number): CascadeStyle {
 
 /** Extra downward shift as a fraction of the viewport (all stages except level 4). */
 const LEVEL_SCROLL_EXTRA_RATIO = 0.1;
+/** One-shot nudge when the database demo first mounts. */
+const INITIAL_SCROLL_RATIO = 0.15;
 
 function scrollLevelIntoView(
   node: HTMLElement | null,
@@ -260,7 +262,7 @@ export function CategoryMemoryBTree() {
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      scrollDownByViewportRatio(LEVEL_SCROLL_EXTRA_RATIO);
+      scrollDownByViewportRatio(INITIAL_SCROLL_RATIO);
     });
     return () => cancelAnimationFrame(frame);
   }, []);
