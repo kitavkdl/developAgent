@@ -73,6 +73,13 @@ run = st.button("검증 실행", type="primary", disabled=(payload is None or bo
 
 if run:
     pipeline = get_pipeline()
+    if not hasattr(pipeline, "run_job_async"):
+        # 배포 직후 st.cache_resource가 (get_pipeline() 자체 코드는 안 바뀌어)
+        # 캐시를 무효화하지 않고 코드 변경 전에 만들어진 낡은 Pipeline 객체를
+        # 그대로 들고 있을 수 있다 — 캐시를 비우고 최신 클래스로 즉시
+        # 재생성해 재부팅 없이도 자가 치유한다.
+        get_pipeline.clear()
+        pipeline = get_pipeline()
     # run_job_async는 job.created 1행만 INSERT하고 즉시 반환 — 실제 S0~S6은
     # 백그라운드 스레드에서 계속 진행되므로, 이 페이지를 벗어나거나 새로고침해도
     # job 자체는 끊기지 않는다 (예전엔 run_job()이 끝날 때까지 스크립트를 통째로
