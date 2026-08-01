@@ -44,6 +44,8 @@ interface EdgeCanvas {
 
 /** L2 pointer hop between existing leaves. */
 const PROBE_HOP_MS = 500;
+/** Extra hold on the rightmost L2 leaf before runtime create. */
+const FINAL_PROBE_EXTRA_MS = 1000;
 /** L1 / create / L3+ spawn hold (everything except L2 probe hops). */
 const LEVEL_HOLD_MS = 3000;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
@@ -250,7 +252,14 @@ export function CategoryMemoryBTree() {
       return;
     }
 
-    const delay = demoPhase === "probe" ? PROBE_HOP_MS : LEVEL_HOLD_MS;
+    const onFinalProbe =
+      demoPhase === "probe" &&
+      leafProbeIndex !== null &&
+      leafProbeIndex >= initialLeafCount - 1;
+    const delay =
+      demoPhase === "probe"
+        ? PROBE_HOP_MS + (onFinalProbe ? FINAL_PROBE_EXTRA_MS : 0)
+        : LEVEL_HOLD_MS;
     const timer = window.setTimeout(() => {
       if (demoPhase === "select-branch") {
         setLeafProbeIndex(0);
