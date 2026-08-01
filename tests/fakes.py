@@ -29,7 +29,6 @@ class FakeDb:
         self.evidences: dict[str, dict] = {}
         self.candidates: list[dict] = []
         self.verdicts: list[dict] = []
-        self.feedback: list[dict] = []
         self.categories: list[dict] = [
             {"category_id": "BEAUTY_PERSONAL_CARE", "label": "뷰티/퍼스널케어",
              "created_by": "seed", "similarity": 0.9},
@@ -185,16 +184,13 @@ class FakeDb:
             "claim_type_code": claim_type_code,
             "industry_category_id": industry_category_id, "claim_hash": claim_hash,
             "embedding_centroid": embedding, "member_count": 1, "reuse_count": 0,
-            "agree_count": 0, "dispute_count": 0, "needs_reverification": False,
             "last_seen_at": datetime.now(timezone.utc),
             "last_searched_at": datetime.now(timezone.utc),
         }
         return cid
 
     def mark_canonical_searched(self, canonical_id):
-        row = self.canonicals[canonical_id]
-        row["last_searched_at"] = datetime.now(timezone.utc)
-        row["needs_reverification"] = False
+        self.canonicals[canonical_id]["last_searched_at"] = datetime.now(timezone.utc)
 
     def expire_canonical(self, canonical_id, days=999):
         self.canonicals[canonical_id]["last_searched_at"] -= timedelta(days=days)
@@ -276,23 +272,6 @@ class FakeDb:
 
     def get_verdict(self, verdict_id):
         return next((dict(v) for v in self.verdicts if v["verdict_id"] == verdict_id), None)
-
-    def insert_feedback(self, verdict_id, reaction, note, source="end_user"):
-        self.feedback.append({"verdict_id": verdict_id, "reaction": reaction,
-                              "user_note": note, "source": source})
-
-    def bump_canonical_feedback(self, canonical_id, reaction):
-        col = "agree_count" if reaction == "AGREE" else "dispute_count"
-        self.canonicals[canonical_id][col] += 1
-
-    def apply_dispute_policy(self, canonical_id, count_threshold, ratio_threshold):
-        row = self.canonicals[canonical_id]
-        total = max(row["agree_count"] + row["dispute_count"], 1)
-        if (row["dispute_count"] >= count_threshold
-                and row["dispute_count"] / total >= ratio_threshold):
-            row["needs_reverification"] = True
-            return True
-        return False
 
 
 class FakeOpenAI:

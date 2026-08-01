@@ -1,8 +1,8 @@
 """COUNTER — 메인 화면 (입력 1회 → 4값 판정. 사용자 프롬프트 없음이 설계 의도).
 
-UI는 파이프라인의 세 계약 함수(run_job / get_job_state / submit_feedback)만 안다
-(BUILD_PLAN §1.1). 피드백 버튼은 결과가 이미 렌더링된 뒤에만 존재한다 —
-사람이 판정을 게이트하지 않는다는 규칙(PRD N2)을 구조적으로 강제.
+UI는 파이프라인의 계약 함수(run_job_async / get_job_state)만 안다
+(BUILD_PLAN §1.1). 사람의 좋아요/싫어요 피드백 수집은 없다 — 목표는 사람
+큐레이션이 아니라 입력을 받는 대로 canonical/verdict DB를 축적하는 것이다.
 """
 from __future__ import annotations
 
@@ -176,11 +176,3 @@ if job_id:
                         if doc.get("reasoning"):
                             st.caption(f"평가 근거: {doc['reasoning']}")
                         st.divider()
-            # 피드백 — 판정이 이미 출력된 뒤의 비동기 수집 (N2)
-            c1, c2, _ = st.columns([1, 1, 6])
-            if c1.button("👍 동의", key=f"agree_{v['verdict_id']}"):
-                pipeline.submit_feedback(v["verdict_id"], "AGREE")
-                st.toast("피드백이 기록되었습니다.")
-            if c2.button("👎 이의", key=f"dispute_{v['verdict_id']}"):
-                pipeline.submit_feedback(v["verdict_id"], "DISPUTE")
-                st.toast("이의가 기록되었습니다. 임계 초과 시 다음 조회 때 자동 재검증됩니다.")

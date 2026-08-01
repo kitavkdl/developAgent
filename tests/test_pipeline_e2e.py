@@ -117,27 +117,6 @@ def test_liner_timeout_degrades_deterministically():
     assert v["required_evidence_note"]
 
 
-# T10/B15 — 피드백은 응답 이후 비동기, dispute 임계 초과 → 재검증 → REVERIFY
-def test_feedback_dispute_triggers_reverification():
-    db = FakeDb()
-    settings = Settings(job_timeout_seconds=300.0,
-                        dispute_count_threshold=3, dispute_ratio_threshold=0.3)
-    p = make_pipeline(db=db, settings=settings)
-    job1 = p.run_job("TEXT", "국내 최초 진공 블렌더")
-    verdict = db.fetch_verdicts(job1)[0]  # 응답은 피드백 없이 이미 완료 (N2)
-    assert db.feedback == []
-    for _ in range(3):
-        p.submit_feedback(verdict["verdict_id"], "DISPUTE")
-    canonical = next(iter(db.canonicals.values()))
-    assert canonical["needs_reverification"] is True
-    job2 = p.run_job("TEXT", "국내 최초 진공 블렌더")
-    decisions = [e["payload"]["decision"] for e in _events(db, job2)
-                 if e["event_type"] == "cache.decision"]
-    assert decisions == ["REVERIFY"]  # 풀 재검색
-    # 재검색 완료 후 자가교정 리셋 (DB_SCHEMA.md §2)
-    assert canonical["needs_reverification"] is False
-
-
 # T11 — JOB_TIMEOUT_SECONDS 초과 → DEGRADED 결정론적 종료 (D-13)
 def test_job_timeout_degrades():
     db = FakeDb()

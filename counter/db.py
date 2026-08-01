@@ -298,11 +298,11 @@ class Db:
             return cur.fetchone()["canonical_id"]
 
     def mark_canonical_searched(self, canonical_id: str) -> None:
-        """재검색(델타/재검증) 완료 — last_searched_at 갱신 + 재검증 플래그 리셋."""
+        """재검색(델타) 완료 — last_searched_at 갱신."""
         with self.cursor() as cur:
             cur.execute(
-                "UPDATE claim_canonical SET last_searched_at = now(), "
-                "needs_reverification = FALSE WHERE canonical_id = %s",
+                "UPDATE claim_canonical SET last_searched_at = now() "
+                "WHERE canonical_id = %s",
                 (canonical_id,),
             )
 
@@ -439,37 +439,6 @@ class Db:
             r = cur.fetchone()
             return dict(r) if r else None
 
-    def insert_feedback(self, verdict_id: str, reaction: str, note: str | None,
-                        source: str = "end_user") -> None:
-        with self.cursor() as cur:
-            cur.execute(
-                "INSERT INTO feedback (feedback_id, verdict_id, reaction, user_note, source) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (new_id(), verdict_id, reaction, note, source),
-            )
-
-    def bump_canonical_feedback(self, canonical_id: str, reaction: str) -> None:
-        col = "agree_count" if reaction == "AGREE" else "dispute_count"
-        with self.cursor() as cur:
-            cur.execute(
-                f"UPDATE claim_canonical SET {col} = {col} + 1 WHERE canonical_id = %s",
-                (canonical_id,),
-            )
-
-    def apply_dispute_policy(self, canonical_id: str, count_threshold: int,
-                             ratio_threshold: float) -> bool:
-        """자가교정 트리거 (DB_SCHEMA.md §2 — 완전 자동): dispute가 건수 AND 비율 임계를
-        넘으면 needs_reverification=true → 다음 조회 때 풀 재검색(REVERIFY)."""
-        with self.cursor() as cur:
-            cur.execute(
-                "UPDATE claim_canonical SET needs_reverification = TRUE "
-                "WHERE canonical_id = %s AND dispute_count >= %s "
-                "  AND dispute_count::float / GREATEST(agree_count + dispute_count, 1) >= %s "
-                "RETURNING canonical_id",
-                (canonical_id, count_threshold, ratio_threshold),
-            )
-            return cur.fetchone() is not None
-
     # ---- KPI (DB_SCHEMA.md §5) ----
 
     def kpi_summary(self) -> dict:
@@ -514,6 +483,37 @@ class Db:
             cur.execute(
                 "SELECT status, COUNT(*) AS n, AVG(latency_ms) AS avg_latency_ms "
                 "FROM search_log GROUP BY 1 ORDER BY n DESC"
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def reuse_savings_summary(self) -> list[dict]:
+        """confidence_source(fresh_search/delta_search/cached_reuse)별 평균 job
+        소요시간과 평균 OpenAI 호출 수 — 캐시 재사용이 실제로 시간을 아끼고
+        (재검색·재평가를 안 하므로) LLM 판단 자체를 새로 안 만들어 할루시네이션
+        여지가 줄어드는지 정량으로 보여주기 위함. cached_reuse는 S4/S5/S6까지
+        통째로 스킵하므로 두 지표 모두 fresh_search보다 뚜렷하게 낮아야 정상."""
+        with self.cursor() as cur:
+            cur.execute(
+                "WITH job_span AS ("
+                "  SELECT job_id, MIN(created_at) AS started_at, "
+                "         MAX(created_at) FILTER (WHERE event_type IN "
+                "           ('job.completed', 'job.degraded', 'job.failed')) AS ended_at "
+                "  FROM trace_event GROUP BY job_id"
+                "), oai_calls AS ("
+                "  SELECT job_id, COUNT(*) AS n FROM trace_event "
+                "  WHERE event_type = 'tool.call' AND provider = 'openai' "
+                "  GROUP BY job_id"
+                ") "
+                "SELECT v.confidence_source, COUNT(*) AS n, "
+                "       AVG(EXTRACT(EPOCH FROM (js.ended_at - js.started_at)) * 1000) "
+                "         AS avg_job_ms, "
+                "       AVG(COALESCE(oc.n, 0)) AS avg_openai_calls "
+                "FROM verdict v "
+                "JOIN claim c ON v.claim_id = c.claim_id "
+                "JOIN job_span js ON js.job_id = c.ad_id "
+                "LEFT JOIN oai_calls oc ON oc.job_id = c.ad_id "
+                "WHERE js.ended_at IS NOT NULL "
+                "GROUP BY v.confidence_source ORDER BY v.confidence_source"
             )
             return [dict(r) for r in cur.fetchall()]
 

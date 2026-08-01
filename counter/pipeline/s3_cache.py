@@ -6,15 +6,14 @@
 
 규칙:
   매칭 실패                              → MISS    (풀 검색)
-  매칭 + needs_reverification=true       → REVERIFY (풀 검색 — 이의제기 트리거)
   매칭 + last_searched_at이 TTL 이내     → HIT     (재검색 없이 즉시 응답)
   매칭 + TTL 초과                        → DELTA   (date_from=last_searched_at)
                                            단, LINER 날짜필터 미지원이면 풀 검색으로 축소
                                            (fresh/full 2-state — PRD §10-4, M4)
 
-트리거 구분 — 절대 섞지 말 것 (DB_SCHEMA.md §2):
-  시간 간극(TTL) → 델타 / 이의제기(dispute) → 풀 재검색.
-  dispute 쌓인 canonical에 델타만 돌리면 틀린 과거 증거 위에 새 기간만 얹는 꼴.
+사람 피드백(agree/dispute) 기반 REVERIFY는 제거됨 — 목표가 사람 큐레이션이
+아니라 입력을 받는 대로 DB에 축적하는 것이므로, 캐시 무효화는 오직 TTL(시간
+간극)로만 결정한다.
 
 last_seen_at(조회 시각) vs last_searched_at(실제 검색 시각)을 혼동하지 말 것 —
 캐시로만 서빙되면 last_seen_at만 갱신되고, 그 간극이 델타 서치를 트리거한다.
@@ -31,8 +30,6 @@ def decide_cache_action(canonical: dict | None, *, ttl_days: int, now: datetime,
     """반환: (decision, date_from) — 순수 함수로 분리해 결정론을 테스트로 증명 (B08)."""
     if canonical is None:
         return "MISS", None
-    if canonical.get("needs_reverification"):
-        return "REVERIFY", None
     last_searched = canonical.get("last_searched_at")
     if last_searched is not None:
         if last_searched.tzinfo is None:

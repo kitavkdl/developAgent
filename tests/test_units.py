@@ -23,16 +23,14 @@ def test_clinical_completion_forced_scientific():
 
 
 # B08 — 캐시 라우팅 결정론 (DB_SCHEMA.md §2 route_cache의 규칙)
-def _canonical(searched_days_ago=1, needs_reverif=False, never_searched=False):
+def _canonical(searched_days_ago=1, never_searched=False):
     return {"last_searched_at": None if never_searched
-            else NOW - timedelta(days=searched_days_ago),
-            "needs_reverification": needs_reverif}
+            else NOW - timedelta(days=searched_days_ago)}
 
 
 def test_cache_rules():
     kw = {"ttl_days": 30, "now": NOW, "supports_date_filter": True}
     assert decide_cache_action(None, **kw) == ("MISS", None)
-    assert decide_cache_action(_canonical(needs_reverif=True), **kw) == ("REVERIFY", None)
     # TTL 기준은 last_seen_at이 아니라 last_searched_at (DB_SCHEMA.md §1 주의)
     assert decide_cache_action(_canonical(searched_days_ago=5), **kw) == ("HIT", None)
     decision, date_from = decide_cache_action(_canonical(searched_days_ago=60), **kw)

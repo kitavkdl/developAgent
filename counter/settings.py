@@ -98,8 +98,6 @@ class Settings:
     job_timeout_seconds: float = 270.0
     category_reuse_threshold: float = 0.75
     canonical_threshold: float = 0.85
-    dispute_count_threshold: int = 3
-    dispute_ratio_threshold: float = 0.30
     trace_poll_interval_seconds: float = 1.0
 
     extras: dict = field(default_factory=dict)
@@ -131,7 +129,5 @@ def load_settings() -> Settings:
         job_timeout_seconds=_get_float("JOB_TIMEOUT_SECONDS", 270.0),
         category_reuse_threshold=_get_float("CATEGORY_REUSE_THRESHOLD", 0.75),
         canonical_threshold=_get_float("CANONICAL_THRESHOLD", 0.85),
-        dispute_count_threshold=_get_int("DISPUTE_COUNT_THRESHOLD", 3),
-        dispute_ratio_threshold=_get_float("DISPUTE_RATIO_THRESHOLD", 0.30),
         trace_poll_interval_seconds=_get_float("TRACE_POLL_INTERVAL_SECONDS", 1.0),
     )

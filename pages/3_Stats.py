@@ -66,6 +66,28 @@ r3.metric("캐시 히트율", f"{float(kpi['cache_hit_ratio'] or 0) * 100:.1f}%"
 r4.metric("에이전트 생성 카테고리", kpi["agent_categories"])
 
 st.divider()
+st.subheader("⚡ 재사용 절감 효과 (시간 · LLM 호출 수)")
+st.caption("cached_reuse는 S4(가설)~S6(REPORTER/GUARDRAIL)까지 새 LLM 판단을 "
+           "전혀 만들지 않고 이미 검증된 판정을 그대로 재사용합니다 — 소요시간뿐 "
+           "아니라 '매번 새로 판단해서 생기는 할루시네이션 여지' 자체가 줄어듭니다. "
+           "다른 입력 경로(TEXT/URL/IMAGE)로 받아도 canonical 매칭은 업종+정규화된 "
+           "클레임 문구로만 되므로 source_type과 무관하게 재사용됩니다.")
+savings = db.reuse_savings_summary()
+if savings:
+    st.dataframe(pd.DataFrame(savings), hide_index=True)
+    fresh = next((r for r in savings if r["confidence_source"] == "fresh_search"), None)
+    cached = next((r for r in savings if r["confidence_source"] == "cached_reuse"), None)
+    if fresh and cached and fresh.get("avg_job_ms"):
+        time_saved = (1 - float(cached["avg_job_ms"] or 0) / float(fresh["avg_job_ms"])) * 100
+        fresh_calls = max(float(fresh["avg_openai_calls"] or 0), 1e-9)
+        call_saved = (1 - float(cached["avg_openai_calls"] or 0) / fresh_calls) * 100
+        sc1, sc2 = st.columns(2)
+        sc1.metric("캐시 재사용 시 평균 소요시간 절감", f"{time_saved:.0f}%")
+        sc2.metric("캐시 재사용 시 평균 LLM 호출 절감", f"{call_saved:.0f}%")
+else:
+    st.info("완료된 job이 아직 없습니다.")
+
+st.divider()
 st.subheader("⏱️ 검색 모드별 (델타 서치 절감 — 축적 효과의 정량 증거)")
 modes = db.search_mode_breakdown()
 if modes:

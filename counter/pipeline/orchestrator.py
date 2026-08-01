@@ -4,9 +4,11 @@
 LLM은 각 단계 안에서만 판단한다. 상태 전이는 counter/state.py의 표가 결정한다.
 이래야 재현 가능하고, 검색 예산을 통제할 수 있고, 판정 게이트를 강제할 수 있다.
 
-외부 계약 (BUILD_PLAN §1.1): run_job / get_job_state / submit_feedback 세 함수.
-Streamlit 페이지는 이 세 함수만 안다 — 파이프라인 로직을 UI와 분리해
+외부 계약 (BUILD_PLAN §1.1): run_job / get_job_state 두 함수.
+Streamlit 페이지는 이 함수들만 안다 — 파이프라인 로직을 UI와 분리해
 단계별 검증 게이트(B01~B11)를 독립적으로 테스트하기 위함.
+사람의 좋아요/싫어요 피드백 수집은 없다 — 목표는 사람 큐레이션이 아니라
+입력을 받는 대로 canonical/verdict DB를 축적하는 것이다.
 
 job_id == ad_id: 한 job은 광고 입력 1건의 처리다 (DB_SCHEMA.md ad 테이블).
 """
@@ -292,22 +294,3 @@ class Pipeline:
         events = self.db.fetch_trace_events(job_id, after_seq=0)
         state = derive_state(events)
         return state.value if state else None
-
-    # ---- 계약 함수 3: submit_feedback ----
-
-    def submit_feedback(self, verdict_id: str, reaction: Literal["AGREE", "DISPUTE"],
-                        note: str | None = None) -> None:
-        """판정이 이미 출력된 뒤 비동기 수집 (PRD N2 — 응답을 절대 블로킹하지 않음.
-        Streamlit에서 결과 렌더링 후 눌리는 버튼이라는 게 이 규칙을 구조적으로 강제).
-        dispute가 (건수 AND 비율) 임계 초과 시 needs_reverification=true →
-        다음 조회 때 S3가 풀 재검색(REVERIFY)으로 보낸다 (자가교정 — 완전 자동)."""
-        self.db.insert_feedback(verdict_id, reaction, note)
-        verdict = self.db.get_verdict(verdict_id)
-        if verdict and verdict.get("canonical_id"):
-            self.db.bump_canonical_feedback(verdict["canonical_id"], reaction)
-            if reaction == "DISPUTE":
-                self.db.apply_dispute_policy(
-                    verdict["canonical_id"],
-                    self.settings.dispute_count_threshold,
-                    self.settings.dispute_ratio_threshold,
-                )
