@@ -76,15 +76,40 @@ function cascadeStyle(index: number): CascadeStyle {
 
 function scrollLevelIntoView(
   node: HTMLElement | null,
-  block: ScrollLogicalPosition = "nearest",
+  options?: {
+    block?: ScrollLogicalPosition;
+    /** Extra downward shift as a fraction of the viewport height. */
+    extraDownRatio?: number;
+  },
 ) {
   if (!node) return;
+  const { block = "nearest", extraDownRatio = 0 } = options ?? {};
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
+
   requestAnimationFrame(() => {
-    node.scrollIntoView({
-      block,
+    const rect = node.getBoundingClientRect();
+    const viewH = window.innerHeight;
+    let delta = 0;
+
+    if (block === "center") {
+      delta = rect.top + rect.height / 2 - viewH / 2;
+    } else if (block === "start") {
+      delta = rect.top;
+    } else if (block === "end") {
+      delta = rect.bottom - viewH;
+    } else if (rect.top < 0) {
+      delta = rect.top;
+    } else if (rect.bottom > viewH) {
+      delta = rect.bottom - viewH;
+    }
+
+    delta += viewH * extraDownRatio;
+    if (Math.abs(delta) < 1) return;
+
+    window.scrollBy({
+      top: delta,
       behavior: reducedMotion ? "auto" : "smooth",
     });
   });
@@ -197,15 +222,21 @@ export function CategoryMemoryBTree() {
   }, [demoStep, mode]);
 
   useEffect(() => {
-    if (showLeafLevel) scrollLevelIntoView(leafLevelRef.current);
+    if (showLeafLevel) {
+      scrollLevelIntoView(leafLevelRef.current, { extraDownRatio: 0.2 });
+    }
   }, [showLeafLevel]);
 
   useEffect(() => {
-    if (showPhraseLevel) scrollLevelIntoView(phraseLevelRef.current);
+    if (showPhraseLevel) {
+      scrollLevelIntoView(phraseLevelRef.current, { extraDownRatio: 0.2 });
+    }
   }, [showPhraseLevel]);
 
   useEffect(() => {
-    if (showTokenLevel) scrollLevelIntoView(keywordLevelRef.current, "center");
+    if (showTokenLevel) {
+      scrollLevelIntoView(keywordLevelRef.current, { block: "center" });
+    }
   }, [showTokenLevel]);
 
   useLayoutEffect(() => {
