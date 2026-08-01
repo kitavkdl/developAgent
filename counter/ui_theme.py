@@ -371,6 +371,12 @@ def plotly_layout(fig, height: int = 340):
             bgcolor="#12241f", bordercolor=LINE_BRIGHT, font=dict(color=INK, family="IBM Plex Mono")
         ),
     )
-    fig.update_xaxes(gridcolor="rgba(232,220,196,0.08)", zerolinecolor="rgba(232,220,196,0.12)")
-    fig.update_yaxes(gridcolor="rgba(232,220,196,0.08)", zerolinecolor="rgba(232,220,196,0.12)")
+    fig.update_xaxes(
+        gridcolor="rgba(232,220,196,0.08)", zerolinecolor="rgba(232,220,196,0.12)",
+        automargin=True,
+    )
+    fig.update_yaxes(
+        gridcolor="rgba(232,220,196,0.08)", zerolinecolor="rgba(232,220,196,0.12)",
+        automargin=True,
+    )
     return fig
