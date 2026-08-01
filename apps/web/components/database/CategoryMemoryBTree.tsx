@@ -38,7 +38,7 @@ interface EdgeCanvas {
 const LEVEL_HOLD_MS = 3000;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
 
-/** Cumulative selection at each autoplay beat — apply immediately so children mount with the pick. */
+/** Cumulative selection per beat. Child levels render only when demoStep reaches them. */
 const DEMO_LEVEL_SELECTIONS = [
   {
     pageId: DEMO_LOOKUP.branchId,
@@ -143,6 +143,23 @@ export function CategoryMemoryBTree() {
     ? `phrase-${selectedCategory?.centroidPhrases.indexOf(selectedPhrase)}`
     : null;
 
+  // Auto: reveal children only when descending into that level (demoStep).
+  // Manual: opening a parent by click reveals its children.
+  const openedDepth =
+    mode === "manual"
+      ? selectedKeyword || selectedPhrase
+        ? 3
+        : selectedCategoryId
+          ? 2
+          : selectedPageId
+            ? 1
+            : 0
+      : demoStep;
+
+  const showLeafLevel = openedDepth >= 1 && selectedPage !== null;
+  const showPhraseLevel = openedDepth >= 2 && selectedCategory !== undefined;
+  const showTokenLevel = openedDepth >= 3 && selectedPhrase !== null;
+
   const visibleDepth = selectedKeyword
     ? 4
     : selectedPhrase
@@ -162,7 +179,7 @@ export function CategoryMemoryBTree() {
       return;
     }
 
-    // Select as soon as this level is active — child nodes mount in the same beat.
+    // Select the node at this depth; deeper sub-nodes stay unmounted until later beats.
     setSelectedPageId(selection.pageId);
     setSelectedCategoryId(selection.categoryId);
     setSelectedPhrase(selection.phrase);
@@ -180,16 +197,16 @@ export function CategoryMemoryBTree() {
   }, [demoStep, mode]);
 
   useEffect(() => {
-    if (selectedPageId) scrollLevelIntoView(leafLevelRef.current);
-  }, [selectedPageId]);
+    if (showLeafLevel) scrollLevelIntoView(leafLevelRef.current);
+  }, [showLeafLevel]);
 
   useEffect(() => {
-    if (selectedCategoryId) scrollLevelIntoView(phraseLevelRef.current);
-  }, [selectedCategoryId]);
+    if (showPhraseLevel) scrollLevelIntoView(phraseLevelRef.current);
+  }, [showPhraseLevel]);
 
   useEffect(() => {
-    if (selectedPhrase) scrollLevelIntoView(keywordLevelRef.current, "center");
-  }, [selectedPhrase]);
+    if (showTokenLevel) scrollLevelIntoView(keywordLevelRef.current, "center");
+  }, [showTokenLevel]);
 
   useLayoutEffect(() => {
     const currentTree = treeRef.current;
@@ -205,19 +222,19 @@ export function CategoryMemoryBTree() {
         },
       ];
 
-      if (selectedPageId) {
+      if (openedDepth >= 1 && selectedPageId) {
         groups.push({
           parentId: selectedPageId,
           state: selectedCategoryId ? "visited" : "current",
         });
       }
-      if (selectedCategoryId) {
+      if (openedDepth >= 2 && selectedCategoryId) {
         groups.push({
           parentId: selectedCategoryId,
           state: selectedPhrase ? "visited" : "current",
         });
       }
-      if (selectedPhraseNodeId) {
+      if (openedDepth >= 3 && selectedPhraseNodeId) {
         groups.push({
           parentId: selectedPhraseNodeId,
           state: selectedKeyword ? "visited" : "current",
@@ -272,7 +289,7 @@ export function CategoryMemoryBTree() {
       cancelAnimationFrame(animationFrame);
       window.clearTimeout(settledAnimation);
     };
-  }, [selectedCategoryId, selectedKeyword, selectedPageId, selectedPhrase, selectedPhraseNodeId]);
+  }, [openedDepth, selectedCategoryId, selectedKeyword, selectedPageId, selectedPhrase, selectedPhraseNodeId]);
 
   function selectPage(pageId: string) {
     setMode("manual");
@@ -484,7 +501,7 @@ export function CategoryMemoryBTree() {
         </ol>
       </div>
 
-      {selectedPage ? (
+      {showLeafLevel && selectedPage ? (
         <>
           <div className={styles.edgeGap} aria-hidden="true" />
           <div className={styles.treeLevel} ref={leafLevelRef}>
@@ -537,7 +554,7 @@ export function CategoryMemoryBTree() {
         </>
       ) : null}
 
-      {selectedCategory ? (
+      {showPhraseLevel && selectedCategory ? (
         <>
           <div className={styles.edgeGap} aria-hidden="true" />
           <div className={styles.treeLevel} ref={phraseLevelRef}>
@@ -589,7 +606,7 @@ export function CategoryMemoryBTree() {
         </>
       ) : null}
 
-      {selectedPhrase ? (
+      {showTokenLevel && selectedPhrase ? (
         <>
           <div className={styles.edgeGap} aria-hidden="true" />
           <div className={styles.treeLevel} ref={keywordLevelRef}>
