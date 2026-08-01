@@ -30,8 +30,8 @@ export default function DatabasePage() {
           <strong>Watch the index resolve a category leaf.</strong>
         </div>
         <p>
-          The deterministic demo follows one key range down to the Beauty
-          record, probes its centroid phrases, and resolves 앰플.
+          The deterministic demo follows Beauty → 뷰티 → 앰플, selecting one
+          node per level as child leaves appear.
         </p>
       </header>
 

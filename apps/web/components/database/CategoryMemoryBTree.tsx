@@ -52,14 +52,14 @@ const DEMO_LEVEL_SELECTIONS = [
     categoryId: DEMO_LOOKUP.categoryId,
     phrase: null,
     keyword: null,
-    status: "Leaf hit · BEAUTY_PERSONAL_CARE",
+    status: "Leaf hit · 뷰티",
   },
   {
     pageId: DEMO_LOOKUP.branchId,
     categoryId: DEMO_LOOKUP.categoryId,
     phrase: DEMO_LOOKUP.phrase,
     keyword: null,
-    status: "Payload probe · centroid phrases",
+    status: "Payload probe · 앰플",
   },
   {
     pageId: DEMO_LOOKUP.branchId,
@@ -74,14 +74,17 @@ function cascadeStyle(index: number): CascadeStyle {
   return { "--node-index": index };
 }
 
-function scrollLevelIntoView(node: HTMLElement | null) {
+function scrollLevelIntoView(
+  node: HTMLElement | null,
+  block: ScrollLogicalPosition = "nearest",
+) {
   if (!node) return;
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
   requestAnimationFrame(() => {
     node.scrollIntoView({
-      block: "nearest",
+      block,
       behavior: reducedMotion ? "auto" : "smooth",
     });
   });
@@ -185,8 +188,12 @@ export function CategoryMemoryBTree() {
   }, [selectedCategoryId]);
 
   useEffect(() => {
-    if (selectedPhrase) scrollLevelIntoView(keywordLevelRef.current);
+    if (selectedPhrase) scrollLevelIntoView(keywordLevelRef.current, "center");
   }, [selectedPhrase]);
+
+  useEffect(() => {
+    if (selectedKeyword) scrollLevelIntoView(keywordLevelRef.current, "end");
+  }, [selectedKeyword]);
 
   useLayoutEffect(() => {
     const currentTree = treeRef.current;
@@ -427,10 +434,12 @@ export function CategoryMemoryBTree() {
           <h1 id="category-index-title">industry_category_pkey</h1>
           <div className={styles.rootSlots}>
             <span>ptr 00</span>
-            <strong>&lt; FASHION_APPAREL</strong>
+            <strong>&lt; Edu</strong>
             <span>ptr 01</span>
-            <strong>&lt; PET</strong>
+            <strong>&lt; Fashion</strong>
             <span>ptr 02</span>
+            <strong>&lt; Life</strong>
+            <span>ptr 03</span>
           </div>
           {!selectedPageId ? <ScanCursor label="ROOT PROBE" /> : null}
         </article>
@@ -466,7 +475,7 @@ export function CategoryMemoryBTree() {
                     <span>INTERNAL {String(index + 1).padStart(2, "0")}</span>
                     <code>{page.blockAddress}</code>
                   </span>
-                  <strong>[ {page.keyRange} ]</strong>
+                  <strong>{page.label}</strong>
                   <small>{page.categoryIds.length} leaf tuples</small>
                   <code>ptr → {page.pageId}</code>
                   {isSelected && !selectedCategoryId ? (
@@ -638,7 +647,7 @@ export function CategoryMemoryBTree() {
         <dl>
           <div>
             <dt>rows</dt>
-            <dd>13 seed + UNCATEGORIZED</dd>
+            <dd>demo · 6–8 nodes / level</dd>
           </div>
           <div>
             <dt>centroid</dt>
