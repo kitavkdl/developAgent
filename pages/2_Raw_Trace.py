@@ -22,11 +22,16 @@ import streamlit as st
 
 from counter.settings import bridge_secrets_to_env, load_settings
 from counter.ui_theme import (
+    PROVIDER_COLORS,
+    axis_headroom,
     inject_theme,
+    kpi_row,
     plain_chip,
     plotly_layout,
     provider_chip,
     render_snake,
+    snake_legend,
+    value_labels,
 )
 from counter.ui_verdict import render_verdict_cards
 
@@ -120,24 +125,52 @@ elif not failed:
 st.divider()
 st.subheader("결론에 이른 처리 과정")
 
-# ---- 단계별 이벤트 건수 — 어느 단계가 이벤트를 가장 많이 만드는지 비교 ----
+# ---- 단계별 이벤트 건수 — 어느 단계가 어느 provider를 써서 이벤트를 만드는지 ----
 if events:
     df_ev = pd.DataFrame(events)
     df_ev["provider"] = df_ev["provider"].fillna("app")
 
-    st.markdown('<div class="ctr-panel-header">단계별 이벤트 건수</div>',
+    provider_counts = df_ev["provider"].value_counts()
+    kpi_row([
+        ("LINER 호출", int(provider_counts.get("liner", 0)), "검색 tool 이벤트",
+         "rgba(183,208,245,0.35)"),
+        ("OpenAI 호출", int(provider_counts.get("openai", 0)), "LLM 판단 이벤트",
+         "rgba(185,224,196,0.35)"),
+        ("앱 내부 단계", int(provider_counts.get("app", 0)), "외부 호출 없는 단계",
+         "rgba(197,206,200,0.3)"),
+        ("단계 종류", int(df_ev["event_type"].nunique()), None, "rgba(196,120,43,0.35)"),
+    ])
+
+    st.markdown('<div class="ctr-panel-header">단계별 이벤트 건수 (provider 구성)</div>',
                 unsafe_allow_html=True)
-    counts = df_ev["event_type"].value_counts().sort_values()
-    fig2 = go.Figure(go.Bar(
-        x=counts.values, y=counts.index, orientation="h",
-        marker=dict(color="#c4782b"),
-    ))
-    plotly_layout(fig2, height=340)
+    st.caption("한 막대 안의 색 구성이 그 단계가 실제로 어느 API를 썼는지 보여줍니다 — "
+               "LINER와 OpenAI가 둘 다 실행되었다는 증거입니다.")
+
+    pivot = (df_ev.pivot_table(index="event_type", columns="provider",
+                               values="seq", aggfunc="count", fill_value=0))
+    totals = pivot.sum(axis=1).sort_values()
+    pivot = pivot.loc[totals.index]
+
+    fig2 = go.Figure()
+    for prov in ("app", "liner", "openai"):
+        if prov not in pivot.columns:
+            continue
+        fig2.add_trace(go.Bar(
+            x=pivot[prov], y=pivot.index, orientation="h",
+            name=prov.upper(), marker=dict(color=PROVIDER_COLORS[prov]),
+            hovertemplate="%{y} · " + prov.upper() + " %{x}건<extra></extra>",
+        ))
+    fig2.update_layout(barmode="stack", bargap=0.35)
+    value_labels(fig2, totals.values, totals.index)
+    plotly_layout(fig2, height=max(280, 34 * len(totals) + 90), grid="x")
+    axis_headroom(fig2, totals.max())
+    fig2.update_xaxes(title="이벤트 건수")
     st.plotly_chart(fig2, use_container_width=True, theme=None)
 
-    st.markdown('<div class="ctr-panel-header">파이프라인 처리 순서 (노드 클릭 시 상세로 이동)</div>',
+    st.markdown('<div class="ctr-panel-header">파이프라인 처리 순서</div>',
                 unsafe_allow_html=True)
     st.markdown(render_snake(events), unsafe_allow_html=True)
+    st.markdown(snake_legend(list(provider_counts.index)), unsafe_allow_html=True)
 
 st.divider()
 
