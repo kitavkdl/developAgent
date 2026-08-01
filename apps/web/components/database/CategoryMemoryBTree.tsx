@@ -35,7 +35,7 @@ interface EdgeCanvas {
 }
 
 /** Hold each explored level before selecting the next child. Cascade timing is ignored. */
-const LEVEL_HOLD_MS = 3000;
+const LEVEL_HOLD_MS = 2000;
 const SCAN_STEPS = ["root", "range", "leaf", "payload", "token"] as const;
 
 /** Cumulative selection per beat. Child levels render only when demoStep reaches them. */
