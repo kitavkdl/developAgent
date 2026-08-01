@@ -256,6 +256,24 @@ class FakeDb:
                        if log.get("claim_id") == claim_id
                        or (canonical_id and log.get("canonical_id") == canonical_id)})
 
+    def fetch_evidence_reviewed(self, claim_id, canonical_id=None):
+        log_ids = {log["log_id"] for log in self.search_logs
+                  if log.get("claim_id") == claim_id
+                  or (canonical_id and log.get("canonical_id") == canonical_id)}
+        out = []
+        for ev in self.evidences.values():
+            if ev.get("log_id") not in log_ids:
+                continue
+            cand = next((c for c in self.candidates if c.get("evidence_id") == ev["evidence_id"]),
+                       None)
+            out.append({
+                "url": ev.get("url"), "title": ev.get("title"), "snippet": ev.get("snippet"),
+                "published_date": ev.get("published_date"), "source_domain": ev.get("source_domain"),
+                "applicability_check": cand.get("applicability_check") if cand else None,
+                "reasoning": cand.get("reasoning") if cand else None,
+            })
+        return out
+
     def get_verdict(self, verdict_id):
         return next((dict(v) for v in self.verdicts if v["verdict_id"] == verdict_id), None)
 

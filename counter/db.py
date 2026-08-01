@@ -415,6 +415,24 @@ class Db:
             )
             return [r["query_text"] for r in cur.fetchall()]
 
+    def fetch_evidence_reviewed(self, claim_id: str, canonical_id: str | None = None) -> list[dict]:
+        """이 클레임(또는 캐시 히트라면 그 canonical)을 위해 실제로 찾아서
+        평가한 문서 전부 — REFUTED 게이트를 통과 못 했어도 어떤 근거를
+        검토했는지 투명하게 보여주기 위함 (판정이 '사실이다'로 오해되지
+        않도록, 실제 조사 흔적을 노출)."""
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT e.url, e.title, e.snippet, e.published_date, e.source_domain, "
+                "       cc.applicability_check, cc.reasoning "
+                "FROM evidence e "
+                "JOIN search_log sl ON e.log_id = sl.log_id "
+                "LEFT JOIN counterexample_candidate cc ON cc.evidence_id = e.evidence_id "
+                "WHERE sl.claim_id = %s OR (%s::text IS NOT NULL AND sl.canonical_id = %s) "
+                "ORDER BY e.retrieved_at",
+                (claim_id, canonical_id, canonical_id),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
     def get_verdict(self, verdict_id: str) -> dict | None:
         with self.cursor() as cur:
             cur.execute("SELECT * FROM verdict WHERE verdict_id = %s", (verdict_id,))

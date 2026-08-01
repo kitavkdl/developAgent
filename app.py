@@ -141,6 +141,41 @@ if job_id:
                 with st.expander(f"실행한 쿼리 전문 ({len(queries)}개)"):
                     for q in queries:
                         st.code(q, language=None)
+
+            # REFUTED로 확정되지 않았어도 실제로 찾아서 검토한 문서를 노출 —
+            # NOT_REFUTED/PUBLIC_SUBSTANTIATION_NOT_FOUND가 "조사 안 함"이
+            # 아니라 "찾아봤지만 기준 미충족"이라는 걸 보여줘 오해를 줄인다.
+            evidence_docs = pipeline.db.fetch_evidence_reviewed(v["claim_id"], v.get("canonical_id"))
+            if evidence_docs:
+                with st.expander(f"검토한 근거 문서 ({len(evidence_docs)}건)"):
+                    field_labels = {
+                        "scope_match": "범주", "metric_match": "지표",
+                        "timeframe_match": "시점", "target_entity_match": "주체",
+                        "geography_match": "시장",
+                    }
+                    for doc in evidence_docs:
+                        st.markdown(
+                            f"**[{doc.get('title') or doc['url']}]({doc['url']})** "
+                            f"(발행일: {doc.get('published_date') or '미상'}"
+                            f"{' · ' + doc['source_domain'] if doc.get('source_domain') else ''})"
+                        )
+                        if doc.get("snippet"):
+                            st.caption(doc["snippet"])
+                        check = doc.get("applicability_check")
+                        if isinstance(check, str):
+                            check = json.loads(check)
+                        if check:
+                            st.markdown(" · ".join(
+                                f"{'✅' if check.get(k) else '❌'} {label}"
+                                for k, label in field_labels.items()
+                            ))
+                            if check.get("is_syndicated_copy"):
+                                st.caption("⚠️ 동일 보도자료 재게재로 판단 — 독립 증거 아님")
+                            if check.get("insufficient_access"):
+                                st.caption("⚠️ 스니펫만으로 판단 불가 — 근거 부족 처리")
+                        if doc.get("reasoning"):
+                            st.caption(f"평가 근거: {doc['reasoning']}")
+                        st.divider()
             # 피드백 — 판정이 이미 출력된 뒤의 비동기 수집 (N2)
             c1, c2, _ = st.columns([1, 1, 6])
             if c1.button("👍 동의", key=f"agree_{v['verdict_id']}"):
