@@ -812,6 +812,47 @@ button.dbPage:focus-visible,
   }
 }
 
+/* Empty shell first, then text fills in (phase2 runtime spawn). */
+.leafChain > li.spawnSlot,
+.payloadGrid > li.spawnSlot,
+.tokenChain > li.spawnSlot {
+  --delay: 0ms;
+  animation: spawn-shell-in 0.35s var(--ease-stage) both;
+}
+
+.spawnNode {
+  min-height: inherit;
+}
+
+.spawnText {
+  opacity: 0;
+  animation: spawn-text-in 0.5s ease 0.5s both;
+}
+
+@keyframes spawn-shell-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.8rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spawn-text-in {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    letter-spacing: 0.12em;
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    letter-spacing: normal;
+  }
+}
+
 @keyframes edge-reveal {
   from {
     opacity: 0.15;
@@ -923,11 +964,16 @@ button.dbPage:focus-visible,
   .payloadGrid > li,
   .tokenChain > li,
   .edgeLayer path,
-  .matchReceipt {
+  .matchReceipt,
+  .spawnText {
     animation-duration: 1ms !important;
     animation-delay: 0s !important;
     filter: none !important;
     transform: none !important;
+  }
+
+  .spawnText {
+    opacity: 1 !important;
   }
 
   .dbPage,
